@@ -35,7 +35,7 @@ enum Command {
     /// Start a local MCP server over stdio backed by a SNOMED CT SQLite database.
     Mcp(commands::mcp::Args),
 
-    /// (Coming soon) Generate vector embeddings from a SNOMED CT NDJSON artefact.
+    /// Generate vector embeddings from a SNOMED CT NDJSON artefact (requires Ollama).
     Embed(commands::embed::Args),
 }
 
