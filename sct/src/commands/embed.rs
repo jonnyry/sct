@@ -201,10 +201,11 @@ fn call_ollama(base_url: &str, model: &str, texts: &[String]) -> Result<Vec<Vec<
         input: texts,
     };
     let resp: EmbedResponse = ureq::post(&url)
-        .set("Content-Type", "application/json")
+        .header("Content-Type", "application/json")
         .send_json(&body)
         .map_err(|e| anyhow::anyhow!("Ollama request failed: {e}"))?
-        .into_json()
+        .into_body()
+        .read_json()
         .context("parsing Ollama response")?;
     Ok(resp.embeddings)
 }

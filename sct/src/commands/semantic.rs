@@ -150,7 +150,7 @@ fn embed_query(base_url: &str, model: &str, query: &str) -> Result<Vec<f32>> {
         input: &[query.to_string()],
     };
     let resp: EmbedResponse = ureq::post(&url)
-        .set("Content-Type", "application/json")
+        .header("Content-Type", "application/json")
         .send_json(&body)
         .map_err(|e| {
             anyhow::anyhow!(
@@ -159,13 +159,14 @@ fn embed_query(base_url: &str, model: &str, query: &str) -> Result<Vec<f32>> {
                  Pull the model if needed: ollama pull {model}"
             )
         })?
-        .into_json()
+        .into_body()
+        .read_json()
         .context("parsing Ollama response")?;
 
     resp.embeddings
         .into_iter()
         .next()
-        .filter(|v| !v.is_empty())
+        .filter(|v: &Vec<f32>| !v.is_empty())
         .context("Ollama returned an empty embedding for the query")
 }
 

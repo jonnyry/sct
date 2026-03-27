@@ -115,25 +115,27 @@ fn info_db(path: &Path) -> Result<()> {
     conn.execute_batch("PRAGMA query_only = ON;")?;
 
     let concept_count: u64 =
-        conn.query_row("SELECT COUNT(*) FROM concepts", [], |r| r.get(0))?;
+        conn.query_row("SELECT COUNT(*) FROM concepts", [], |r| r.get::<_, i64>(0)).map(|n| n as u64)?;
 
     let schema_version: Option<u32> = conn
         .query_row("SELECT MAX(schema_version) FROM concepts", [], |r| r.get(0))
         .unwrap_or(None);
 
     let fts_count: u64 = conn
-        .query_row("SELECT COUNT(*) FROM concepts_fts", [], |r| r.get(0))
+        .query_row("SELECT COUNT(*) FROM concepts_fts", [], |r| r.get::<_, i64>(0))
+        .map(|n| n as u64)
         .unwrap_or(0);
 
     let isa_count: u64 = conn
-        .query_row("SELECT COUNT(*) FROM concept_isa", [], |r| r.get(0))
+        .query_row("SELECT COUNT(*) FROM concept_isa", [], |r| r.get::<_, i64>(0))
+        .map(|n| n as u64)
         .unwrap_or(0);
 
     // Hierarchy breakdown
     let mut stmt = conn
         .prepare("SELECT hierarchy, COUNT(*) as n FROM concepts GROUP BY hierarchy ORDER BY n DESC")?;
     let rows: Vec<(String, u64)> = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1).map(|n| n as u64)?)))?
         .flatten()
         .collect();
 
