@@ -12,6 +12,91 @@ SNOMED CT is distributed as a set of tab-separated RF2 files that require joinin
 
 ---
 
+## Quick start
+
+This takes you from a fresh SNOMED download to querying real terminology data in a few minutes.
+
+### 1. Build the tool
+
+```bash
+git clone https://github.com/your-org/sct
+cd sct
+cargo install --path sct
+```
+
+### 2. Download SNOMED CT
+
+**UK users:** log in to [NHS Digital TRUD](https://isd.digital.nhs.uk/), find **SNOMED CT UK Edition**, and download **SNOMED CT UK Monolith Edition, RF2: Snapshot**. Unzip it somewhere — we'll use `~/snomed/` here.
+
+**Other users:** download your national edition from [MLDS](https://mlds.ihtsdotools.org/) or the [NLM](https://www.nlm.nih.gov/healthit/snomedct/us_edition.html) and unzip it.
+
+### 3. Convert
+
+Point `sct` at the unzipped directory. The output filename is derived automatically from the release name:
+
+```bash
+sct --rf2 ~/snomed/SnomedCT_MonolithRF2_PRODUCTION_20260311T120000Z/
+# Writing 831132 records...
+# Output: snomedct-monolithrf2-production-20260311t120000z.ndjson
+# Done.
+```
+
+Takes around 10 seconds. You now have a single self-contained NDJSON file.
+
+### 4. Query it
+
+No custom tools needed — just `jq`.
+
+**Look up a concept by name:**
+```bash
+jq 'select(.preferred_term | test("myocardial infarction"; "i"))' \
+  snomedct-monolithrf2-production-20260311t120000z.ndjson | head -1 | jq '{id, preferred_term, hierarchy, synonyms}'
+```
+```json
+{
+  "id": "22298006",
+  "preferred_term": "Myocardial infarction",
+  "hierarchy": "Clinical finding",
+  "synonyms": ["Heart attack", "Cardiac infarction", "MI - Myocardial infarction"]
+}
+```
+
+**Find all subtypes of a concept (its children):**
+```bash
+jq 'select(.parents[].id == "22298006") | .preferred_term' \
+  snomedct-monolithrf2-production-20260311t120000z.ndjson
+```
+
+**Get the full hierarchy path for a concept:**
+```bash
+jq 'select(.id == "22298006") | .hierarchy_path' \
+  snomedct-monolithrf2-production-20260311t120000z.ndjson
+```
+```json
+["SNOMED CT Concept", "Clinical finding", "Disorder of cardiovascular system", "Ischemic heart disease", "Myocardial infarction"]
+```
+
+**Count concepts by top-level hierarchy:**
+```bash
+jq -r '.hierarchy' snomedct-monolithrf2-production-20260311t120000z.ndjson \
+  | sort | uniq -c | sort -rn | head -10
+```
+```
+ 210341 Clinical finding
+ 160000 Procedure
+  85000 Organism
+  70000 Substance
+  ...
+```
+
+**Find where a drug is in the hierarchy:**
+```bash
+jq 'select(.preferred_term | test("amlodipine"; "i")) | {id, preferred_term, hierarchy_path}' \
+  snomedct-monolithrf2-production-20260311t120000z.ndjson | head -1 | jq .
+```
+
+---
+
 ## Prerequisites
 
 - Rust toolchain (stable, 1.70+): [rustup.rs](https://rustup.rs)
