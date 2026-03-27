@@ -253,9 +253,20 @@ fn handle_message(conn: &Connection, msg: &Value) -> Option<Value> {
     Some(serde_json::to_value(Response::ok(id, result)).unwrap())
 }
 
-fn handle_initialize(_params: &Option<Value>) -> Value {
+fn handle_initialize(params: &Option<Value>) -> Value {
+    // Echo back the client's requested protocol version so that newer clients
+    // (e.g. Claude Code ≥ 2.x using 2025-03-26) don't reject us.  We support
+    // any version ≥ "2024-11-05"; fall back to that minimum if none is given.
+    const MIN_VERSION: &str = "2024-11-05";
+    let protocol_version = params
+        .as_ref()
+        .and_then(|p| p.get("protocolVersion"))
+        .and_then(|v| v.as_str())
+        .filter(|v| v.as_bytes() >= MIN_VERSION.as_bytes())
+        .unwrap_or(MIN_VERSION);
+
     json!({
-        "protocolVersion": "2024-11-05",
+        "protocolVersion": protocol_version,
         "capabilities": {
             "tools": {}
         },
