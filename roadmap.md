@@ -35,20 +35,19 @@ Add a `snomed_semantic_search` MCP tool that loads the Arrow IPC file produced b
 
 Compare two releases of the canonical artefact (e.g. 2025-01 vs 2026-01) and report:
 
-- [ ] Concepts added since the previous release
-- [ ] Concepts inactivated since the previous release
-- [ ] Concepts whose preferred term changed
-- [ ] Concepts whose hierarchy changed
-
-Output as NDJSON (one diff record per changed concept) or as a human-readable Markdown summary.
+- [x] Concepts added since the previous release
+- [x] Concepts inactivated since the previous release
+- [x] Concepts whose preferred term changed
+- [x] Concepts whose hierarchy changed
+- [x] `--format summary` (default, human-readable) and `--format ndjson` (one diff record per change)
 
 ### `sct info` — inspect an artefact
 
 A quick introspection command for any `sct`-produced file:
 
-- [ ] For `.ndjson`: print concept count, `schema_version`, hierarchy breakdown, source RF2 date (parsed from filename convention)
-- [ ] For `.db`: print concept count, schema version, FTS row count, file size
-- [ ] For `.arrow`: print embedding count, dimension, model name (if stored in metadata)
+- [x] For `.ndjson`: concept count, `schema_version`, release date (from filename), hierarchy breakdown
+- [x] For `.db`: concept count, schema version, FTS row count, IS-A edge count, file size, hierarchy breakdown
+- [x] For `.arrow`: embedding count, dimension, schema, file size
 
 ---
 

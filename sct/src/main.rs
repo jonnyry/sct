@@ -37,6 +37,12 @@ enum Command {
 
     /// Generate vector embeddings from a SNOMED CT NDJSON artefact (requires Ollama).
     Embed(commands::embed::Args),
+
+    /// Inspect a sct-produced artefact (.ndjson, .db, .arrow) and print a summary.
+    Info(commands::info::Args),
+
+    /// Compare two SNOMED CT NDJSON artefacts and report what changed between releases.
+    Diff(commands::diff::Args),
 }
 
 fn main() -> Result<()> {
@@ -48,5 +54,7 @@ fn main() -> Result<()> {
         Command::Markdown(args) => commands::markdown::run(args),
         Command::Mcp(args) => commands::mcp::run(args),
         Command::Embed(args) => commands::embed::run(args),
+        Command::Info(args) => commands::info::run(args),
+        Command::Diff(args) => commands::diff::run(args),
     }
 }
