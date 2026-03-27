@@ -19,7 +19,7 @@ This takes you from a fresh SNOMED download to querying real terminology data in
 ### 1. Build the tool
 
 ```bash
-git clone https://github.com/your-org/sct
+git clone https://github.com/pacharanero/sct
 cd sct
 cargo install --path sct
 ```
