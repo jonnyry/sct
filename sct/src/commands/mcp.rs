@@ -27,6 +27,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 
+use crate::schema::SCHEMA_VERSION;
+
 #[derive(Parser, Debug)]
 pub struct Args {
     /// Path to the SNOMED CT SQLite database produced by `sct sqlite`.
@@ -41,6 +43,9 @@ pub fn run(args: Args) -> Result<()> {
         "PRAGMA query_only = ON;
          PRAGMA cache_size = -32768;",
     )?;
+
+    // Validate the database schema_version before serving.
+    validate_schema_version(&conn)?;
 
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -63,6 +68,68 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Schema version validation
+// ---------------------------------------------------------------------------
+
+/// How many schema versions ahead we will tolerate before refusing to start.
+///
+/// * db_version == SCHEMA_VERSION  → OK, no warning
+/// * db_version in (SCHEMA_VERSION, SCHEMA_VERSION + WARN_THRESHOLD]  → warn to stderr, continue
+/// * db_version > SCHEMA_VERSION + WARN_THRESHOLD  → hard error, refuse to start
+const SCHEMA_WARN_THRESHOLD: u32 = 5;
+
+fn validate_schema_version(conn: &Connection) -> Result<()> {
+    // The schema_version column is stored per-concept; take the max.
+    let db_version: Option<u32> = conn
+        .query_row(
+            "SELECT MAX(schema_version) FROM concepts",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(None);
+
+    let db_version = match db_version {
+        Some(v) => v,
+        None => {
+            // Empty database — nothing to serve but not an error.
+            return Ok(());
+        }
+    };
+
+    if db_version == SCHEMA_VERSION {
+        return Ok(());
+    }
+
+    if db_version < SCHEMA_VERSION {
+        // Older database: we can likely still read it.
+        eprintln!(
+            "sct mcp: database schema_version {} is older than this binary expects ({}).\n\
+             Consider regenerating with `sct ndjson` + `sct sqlite`.",
+            db_version, SCHEMA_VERSION
+        );
+        return Ok(());
+    }
+
+    // db_version > SCHEMA_VERSION
+    let gap = db_version - SCHEMA_VERSION;
+    if gap <= SCHEMA_WARN_THRESHOLD {
+        eprintln!(
+            "sct mcp: WARNING — database schema_version {} is newer than this binary ({}).\n\
+             Some fields may not be served correctly. Upgrade sct to remove this warning.",
+            db_version, SCHEMA_VERSION
+        );
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "database schema_version {} is too new for this binary (expects {}).\n\
+             Please upgrade sct: https://github.com/your-org/sct/releases",
+            db_version,
+            SCHEMA_VERSION
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
