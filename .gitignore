@@ -6,6 +6,8 @@ sct/target/
 *.parquet
 *.lance
 *.db
+*.db-shm
+*.db-wal
 *.arrow
 
 # OS / editor
@@ -14,4 +16,6 @@ sct/target/
 .vscode/
 *.swp
 
-!.gitkeep
+
+# Agents
+.claude
