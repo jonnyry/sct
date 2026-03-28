@@ -10,6 +10,9 @@ sct/target/
 *.db-wal
 *.arrow
 
+# Benchmark results (generated data — commit selectively, not automatically)
+benchmarks/*.md
+
 # OS / editor
 .DS_Store
 .idea/

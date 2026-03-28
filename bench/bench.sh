@@ -101,6 +101,7 @@ source "${BENCH_DIR}/lib/report.sh"
 BENCH_TMPDIR=$(mktemp -d /tmp/bench_XXXXXX)
 BENCH_RESULTS_TSV="${BENCH_TMPDIR}/results.tsv"
 BENCH_DATE=$(date +%Y-%m-%d)
+BENCH_DATETIME=$(date +%Y-%m-%dT%H%M%S)
 
 # Called by each operations/*.sh to write one result row.
 append_result() {
@@ -172,9 +173,23 @@ if [[ -n "$BENCH_OUTPUT_FILE" ]]; then
   printf '\nwrote report to %s\n' "$BENCH_OUTPUT_FILE" >&2
 fi
 
-# Write benchmarks.md if requested.
+# Write benchmarks file if requested.
+# Filename: benchmarks/YYYY-MM-DDTHHMMSS-<server-slug>.md
+# (or benchmarks/YYYY-MM-DDTHHMMSS-local.md when no server is configured)
 if $BENCH_WRITE_BENCHMARKS; then
-  render_markdown "$BENCH_RESULTS_TSV" "./benchmarks.md"
+  mkdir -p benchmarks
+  if [[ -n "$BENCH_SERVER" ]]; then
+    # Derive a filesystem-safe slug from the server URL:
+    # strip scheme, replace non-alphanumeric runs with hyphens, trim trailing dash
+    _server_slug=$(printf '%s' "$BENCH_SERVER" \
+      | sed 's|^[a-z]*://||' \
+      | tr -cs 'a-zA-Z0-9' '-' \
+      | sed 's/-$//')
+  else
+    _server_slug="local"
+  fi
+  _bench_outfile="benchmarks/${BENCH_DATETIME}-${_server_slug}.md"
+  render_markdown "$BENCH_RESULTS_TSV" "$_bench_outfile"
 fi
 
 # Clean up temp files.
