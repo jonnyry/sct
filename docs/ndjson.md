@@ -9,14 +9,14 @@ Convert an RF2 Snapshot directory into the canonical SNOMED CT NDJSON artefact.
 ## Usage
 
 ```
-sct ndjson --rf2 <DIR> [--rf2 <DIR>...] [OPTIONS]
+sct ndjson --rf2 <DIR|ZIP> [--rf2 <DIR|ZIP>...] [OPTIONS]
 ```
 
 ## Options
 
 | Flag | Default | Description |
 |---|---|---|
-| `--rf2 <DIR>` | *(required)* | RF2 Snapshot directory. Repeat to layer extensions. |
+| `--rf2 <DIR\|ZIP>` | *(required)* | RF2 Snapshot directory **or** a `.zip` release archive. Repeat to layer extensions. |
 | `--locale <LOCALE>` | `en-GB` | BCP-47 locale for preferred term selection. |
 | `--output <FILE>` | *(derived from RF2 dir name)* | Output NDJSON path. Use `-o -` for stdout. |
 | `--include-inactive` | off | Include inactive concepts (omitted by default). |
@@ -25,10 +25,17 @@ sct ndjson --rf2 <DIR> [--rf2 <DIR>...] [OPTIONS]
 
 ## Examples
 
-### UK Monolith (recommended — one directory, everything included)
+### UK Monolith from a downloaded zip (no manual extraction needed)
 
 ```bash
-sct ndjson --rf2 ~/.downloads/SnomedCT_MonolithRF2_PRODUCTION_20260311T120000Z/
+sct ndjson --rf2 SnomedCT_MonolithRF2_PRODUCTION_20260311T120000Z.zip
+# Output: snomedct-monolithrf2-production-20260311t120000z.ndjson
+```
+
+### UK Monolith from an already-extracted directory
+
+```bash
+sct ndjson --rf2 SnomedCT_MonolithRF2_PRODUCTION_20260311T120000Z/
 # Output: snomedct-monolithrf2-production-20260311t120000z.ndjson
 ```
 
@@ -36,17 +43,17 @@ sct ndjson --rf2 ~/.downloads/SnomedCT_MonolithRF2_PRODUCTION_20260311T120000Z/
 
 ```bash
 sct ndjson \
-  --rf2 ./SnomedCT_InternationalRF2_PRODUCTION_20250101T120000Z/ \
+  --rf2 SnomedCT_InternationalRF2_PRODUCTION_20250101T120000Z.zip \
   --locale en-US \
   --output snomed-international-20250101.ndjson
 ```
 
-### Two-directory UK edition (clinical + drug extension)
+### Two-release UK edition (clinical + drug extension, zip and directory mixed)
 
 ```bash
 sct ndjson \
-  --rf2 ./SnomedCT_UKClinicalRF2_PRODUCTION_20250401T000001Z/ \
-  --rf2 ./SnomedCT_UKDrugRF2_PRODUCTION_20250401T000001Z/ \
+  --rf2 SnomedCT_UKClinicalRF2_PRODUCTION_20250401T000001Z.zip \
+  --rf2 SnomedCT_UKDrugRF2_PRODUCTION_20250401T000001Z.zip \
   --locale en-GB \
   --output snomed-uk-full-20250401.ndjson
 ```

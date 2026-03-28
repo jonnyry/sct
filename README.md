@@ -48,7 +48,8 @@ cargo install --path sct
 #    International: https://mlds.ihtsdotools.org/ (allow up to a week for approval)
 
 # 3. Convert RF2 → NDJSON (~10s for 831k concepts)
-sct ndjson --rf2 ~/.downloads/SnomedCT_MonolithRF2_PRODUCTION_20260311T120000Z/
+#    Pass the .zip directly — no manual extraction needed
+sct ndjson --rf2 SnomedCT_MonolithRF2_PRODUCTION_20260311T120000Z.zip
 # ✓  831,487 concepts written → snomedct-monolithrf2-production-20260311t120000z.ndjson
 
 # 4. Load into SQLite with FTS5
