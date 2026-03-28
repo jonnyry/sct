@@ -14,6 +14,12 @@ categories = ["command-line-utilities", "science"]
 name = "sct"
 path = "src/main.rs"
 
+[features]
+default = []
+tui = ["dep:ratatui", "dep:crossterm"]
+gui = ["dep:axum", "dep:tokio", "dep:open"]
+full = ["tui", "gui"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -28,6 +34,15 @@ parquet = { version = "58", features = ["arrow"] }
 arrow = { version = "58", default-features = false, features = ["ipc"] }
 indicatif = "0.18"
 ureq = { version = "3", features = ["json"] }
+
+# Optional: sct tui
+ratatui = { version = "0.28", optional = true }
+crossterm = { version = "0.27", optional = true }
+
+# Optional: sct gui
+axum = { version = "0.7", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"], optional = true }
+open = { version = "5", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
