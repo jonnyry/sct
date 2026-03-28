@@ -25,9 +25,12 @@ run_bulk() {
 
   local rms="-" rsd="-" notes=""
   if [[ -n "$BENCH_SERVER" ]]; then
-    if rms=$(fhir_time_bulk "${ids[@]}" 2>/dev/null); then
+    # Call directly (not in a subshell) so FHIR_BULK_MODE propagates back.
+    FHIR_BULK_MODE="sequential"
+    if fhir_time_bulk "${ids[@]}" >/dev/null 2>&1; then
+      rms=$TIMING_MEDIAN
       rsd=$TIMING_STDDEV
-      if [[ "${FHIR_BULK_MODE:-}" == "sequential" ]]; then
+      if [[ "$FHIR_BULK_MODE" == "sequential" ]]; then
         notes="server does not support FHIR batch; ${n} sequential \$lookup calls issued"
       else
         notes="FHIR batch bundle (${n} entries)"

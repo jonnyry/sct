@@ -245,7 +245,7 @@ render_markdown() {
 
     if (( ${#_footnotes[@]} > 0 )); then
       printf '## notes\n\n'
-      for fn in "${_footnotes[@]}"; do printf '- %s\n' "$fn"; done
+      for fn in "${_footnotes[@]}"; do printf '%s\n' "- ${fn}"; done
       printf '\n'
     fi
 

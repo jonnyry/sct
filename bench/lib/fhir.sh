@@ -7,6 +7,11 @@
 # The FHIR $-operations require literal $ in the URL. Inside bash double
 # quotes, use \$ to prevent variable interpolation.
 
+# Global state set by fhir_time_ancestors_iterative and fhir_time_bulk.
+# Initialised here so they are always bound even if the functions are never called.
+FHIR_ANCESTOR_HOPS=0
+FHIR_BULK_MODE="sequential"
+
 # _urlencode STR — percent-encodes a string for safe embedding in a URL query value.
 _urlencode() {
   local s="$1" out='' i c

@@ -22,7 +22,11 @@ run_ancestors() {
 
   local rms="-" rsd="-" notes=""
   if [[ -n "$BENCH_SERVER" ]]; then
-    if rms=$(fhir_time_ancestors_iterative "$code" 2>/dev/null); then
+    # Call directly (not in a subshell) so FHIR_ANCESTOR_HOPS propagates back.
+    # The function still sets TIMING_MEDIAN/TIMING_STDDEV as globals.
+    FHIR_ANCESTOR_HOPS=0
+    if fhir_time_ancestors_iterative "$code" >/dev/null 2>&1; then
+      rms=$TIMING_MEDIAN
       rsd=$TIMING_STDDEV
       notes="${FHIR_ANCESTOR_HOPS} sequential \$lookup calls (one per IS-A hop)"
     else

@@ -4,15 +4,23 @@
 
 ## results
 
-| operation | sct (local) | ± | not measured | ± | speedup |
+| operation | sct (local) | ± | fhir (remote) | ± | speedup |
 |:---|---:|---:|---:|---:|:---|
-| concept lookup | 2 ms | ±0 ms | — | — | — |
-| text search (top 10) | 2 ms | ±0 ms | — | — | — |
-| direct children | 2 ms | ±0 ms | — | — | — |
-| ancestor chain (depth ~12) | 2 ms | ±0 ms | — | — | — |
-| subsumption test | 2 ms | ±0 ms | — | — | — |
-| bulk lookup (15 concepts) | 2 ms | ±0 ms | — | — | — |
-| **total** | **12 ms** | | **—** | | — |
+| concept lookup | 1 ms | ±0 ms | 131 ms | ±0 ms | **131× faster** |
+| text search (top 10) | 1 ms | ±0 ms | 171 ms | ±0 ms | **171× faster** |
+| direct children | 1 ms | ±0 ms | 132 ms | ±0 ms | **132× faster** |
+| ancestor chain (depth ~12) | 2 ms | ±0 ms | 1100 ms [1] | ±81 ms | **550× faster** |
+| subsumption test | 1 ms | ±81 ms | 134 ms [2] | ±81 ms | **134× faster** |
+| bulk lookup (15 concepts) | 1 ms | ±81 ms | 2526 ms [3] | ±233 ms | **2526× faster** |
+| **total** | **7 ms** | | **4194 ms** | | **599× faster** |
+
+remote: https://terminology.openehr.org/fhir | ping: 190 ms | 5 runs (+1 warmup) | hyperfine 1.20.0
+
+## notes
+
+- [1] 6 sequential $lookup calls (one per IS-A hop)
+- [2] positive case (T2DM subsumes DM); false cases are similar cost
+- [3] server does not support FHIR batch; 15 sequential $lookup calls issued
 
 ## environment
 
