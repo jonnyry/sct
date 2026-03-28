@@ -2,6 +2,13 @@
 name = "sct"
 version = "0.2.0"
 edition = "2021"
+description = "Local-first SNOMED CT toolchain: RF2 → NDJSON, SQLite, Parquet, Markdown, Arrow embeddings, and MCP server"
+license = "MIT"
+repository = "https://github.com/pacharanero/sct"
+homepage = "https://github.com/pacharanero/sct"
+readme = "../README.md"
+keywords = ["snomed", "healthcare", "terminology", "fhir", "mcp"]
+categories = ["command-line-utilities", "science"]
 
 [[bin]]
 name = "sct"

@@ -8,7 +8,7 @@ Outstanding work and next steps. Completed milestones have been removed.
 
 ### Distribution
 
-- [ ] Publish to crates.io and document `cargo install sct`
+- [x] Publish to crates.io and document `cargo install sct` (CI workflow adds `cargo publish` step on tag push)
 - [ ] Add Windows x86_64 (`x86_64-pc-windows-msvc`) to the release CI matrix
 - [ ] Homebrew formula for macOS one-liner install (`brew install sct`)
 - [ ] SHA-256 checksums for NDJSON artefacts published alongside GitHub Releases
@@ -60,5 +60,6 @@ A quick introspection command for any `sct`-produced file:
 
 - [ ] **TRUD integration** — `sct download` subcommand that authenticates with the NHS TRUD API and downloads the latest UK Monolith RF2 release automatically
 - [ ] **History files** — parse RF2 history substitution tables to map inactivated concept IDs forward to their replacements; expose via `snomed_resolve` MCP tool
-- [ ] **`sct serve`** — thin HTTP wrapper around the MCP tools for use cases that cannot use stdio transport (web apps, non-Claude AI clients)
+- [ ] **`sct serve`** — HTTP FHIR terminology server implementing the standard FHIR R4/R5 `CodeSystem` and `ValueSet` operations (`$lookup`, `$validate-code`, `$expand`, `$subsumes`) backed by the SQLite database. Drop-in replacement for cloud terminology servers in EHR integration and FHIR workflow testing. No Elasticsearch or Java required.
 - [ ] **Concept maps** — cross-map support: load SNOMED→ICD-10/OPCS-4 map files from RF2 and expose via `snomed_map` MCP tool
+- [ ] **IPS Free Set bundling** — SNOMED International publishes a curated SNOMED CT IPS Free Set specifically for International Patient Summary use, available without a member licence. Investigate bundling the pre-processed NDJSON artefact of this subset directly in `sct` (the RF2 source is freely available from MLDS without affiliate membership). This would make `sct lexical`, `sct mcp`, and `sct serve` work out-of-the-box for IPS tooling without any RF2 download step. *Requires licence verification before distribution.*

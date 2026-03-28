@@ -420,8 +420,9 @@ fn tool_search(conn: &Connection, args: &Value) -> Result<String> {
     let safe_query = sanitise_fts_query(query);
 
     let mut stmt = conn.prepare(
-        "SELECT id, preferred_term, fsn, hierarchy
-         FROM concepts_fts
+        "SELECT f.id, f.preferred_term, f.fsn, c.hierarchy
+         FROM concepts_fts f
+         JOIN concepts c ON c.id = f.id
          WHERE concepts_fts MATCH ?1
          ORDER BY rank
          LIMIT ?2",
