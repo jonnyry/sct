@@ -3,16 +3,16 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::builder::build_records;
 use crate::rf2::{discover_rf2_files, Rf2Dataset};
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    /// Path to an RF2 Snapshot directory. May be specified multiple times to
-    /// layer a base release with one or more extensions (e.g. UK clinical +
-    /// drug extension).
+    /// Path to an RF2 Snapshot directory, or a .zip archive of an RF2 release.
+    /// May be specified multiple times to layer a base release with one or more
+    /// extensions (e.g. UK clinical + drug extension).
     #[arg(long = "rf2", required = true, num_args = 1..)]
     pub rf2_dirs: Vec<PathBuf>,
 
@@ -31,9 +31,21 @@ pub struct Args {
 }
 
 pub fn run(args: Args) -> Result<()> {
+    // --- Resolve each --rf2 path, extracting ZIPs to temp dirs as needed ---
+    // _temp_dirs keeps the TempDir values alive until we finish writing output.
+    let mut _temp_dirs: Vec<tempfile::TempDir> = Vec::new();
+    let mut resolved_dirs: Vec<PathBuf> = Vec::new();
+    for path in &args.rf2_dirs {
+        let (dir, maybe_tmp) = maybe_extract_zip(path)?;
+        if let Some(tmp) = maybe_tmp {
+            _temp_dirs.push(tmp);
+        }
+        resolved_dirs.push(dir);
+    }
+
     // --- Discover RF2 files across all supplied directories ---
     let mut all_files = crate::rf2::Rf2Files::default();
-    for dir in &args.rf2_dirs {
+    for dir in &resolved_dirs {
         eprintln!("Scanning {}", dir.display());
         let found =
             discover_rf2_files(dir).with_context(|| format!("scanning {}", dir.display()))?;
@@ -126,6 +138,10 @@ pub fn slugify_path(path: &std::path::Path) -> String {
         .next_back()
         .unwrap_or("snomed");
 
+    // Strip a trailing .zip so the slug reflects the release name, not the archive extension.
+    let name = name.strip_suffix(".zip").unwrap_or(name);
+    let name = name.strip_suffix(".ZIP").unwrap_or(name);
+
     let lower = name.to_lowercase();
     let mut slug = String::with_capacity(lower.len());
     let mut prev_hyphen = false;
@@ -139,6 +155,88 @@ pub fn slugify_path(path: &std::path::Path) -> String {
         }
     }
     slug.trim_matches('-').to_string()
+}
+
+/// If `path` has a `.zip` extension, extract the archive to a temporary directory
+/// and return the path to use (the single top-level subdirectory, if any) together
+/// with the `TempDir` handle that the caller must keep alive.
+///
+/// If `path` is already a directory, return it as-is with no `TempDir`.
+fn maybe_extract_zip(path: &PathBuf) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
+    let is_zip = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("zip"))
+        .unwrap_or(false);
+
+    if !is_zip {
+        return Ok((path.clone(), None));
+    }
+
+    eprintln!("Extracting {} ...", path.display());
+    let tmp = tempfile::tempdir().context("creating temporary extraction directory")?;
+    extract_zip(path, tmp.path())
+        .with_context(|| format!("extracting {}", path.display()))?;
+
+    // If the archive contains exactly one top-level directory, use that —
+    // SNOMED CT ZIPs normally contain a single directory named after the release.
+    let top_dirs: Vec<_> = std::fs::read_dir(tmp.path())
+        .context("reading extraction directory")?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+
+    let rf2_dir = if top_dirs.len() == 1 {
+        top_dirs[0].path()
+    } else {
+        tmp.path().to_path_buf()
+    };
+
+    eprintln!("Extracted to {}", rf2_dir.display());
+    Ok((rf2_dir, Some(tmp)))
+}
+
+/// Extract a ZIP archive to `dest`, guarding against path traversal.
+fn extract_zip(zip_path: &PathBuf, dest: &Path) -> Result<()> {
+    let file = std::fs::File::open(zip_path)
+        .with_context(|| format!("opening {}", zip_path.display()))?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
+        .with_context(|| format!("reading zip archive {}", zip_path.display()))?;
+
+    let total = archive.len();
+    for i in 0..total {
+        let mut entry = archive.by_index(i)?;
+
+        // enclosed_name() returns None for unsafe paths (e.g. ../escape).
+        let entry_path = match entry.enclosed_name() {
+            Some(p) => dest.join(p),
+            None => {
+                eprintln!(
+                    "  skipping unsafe zip entry: {}",
+                    entry.name()
+                );
+                continue;
+            }
+        };
+
+        if entry.is_dir() {
+            std::fs::create_dir_all(&entry_path)
+                .with_context(|| format!("creating directory {}", entry_path.display()))?;
+        } else {
+            if let Some(parent) = entry_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut out = std::fs::File::create(&entry_path)
+                .with_context(|| format!("creating {}", entry_path.display()))?;
+            std::io::copy(&mut entry, &mut out)?;
+        }
+
+        if (i + 1) % 5000 == 0 || i + 1 == total {
+            eprint!("\r  {}/{} entries extracted", i + 1, total);
+        }
+    }
+    eprintln!(); // newline after progress
+    Ok(())
 }
 
 #[cfg(test)]
