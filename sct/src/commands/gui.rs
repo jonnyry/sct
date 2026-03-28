@@ -16,7 +16,7 @@
 use anyhow::{Context, Result};
 use axum::{
     extract::{Path, Query, State},
-    response::{Html, Json},
+    response::{Html, IntoResponse, Json, Response},
     routing::get,
     Router,
 };
@@ -43,6 +43,11 @@ pub struct Args {
     /// Do not open a browser window automatically.
     #[arg(long)]
     pub no_open: bool,
+
+    /// Serve the UI from this HTML file instead of the embedded version.
+    /// Changes are visible on browser refresh without recompiling.
+    #[arg(long, value_name = "FILE")]
+    pub dev_html: Option<PathBuf>,
 }
 
 pub fn run(args: Args) -> Result<()> {
@@ -57,7 +62,7 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(serve(db_path, port, no_open))
+    rt.block_on(serve(db_path, port, no_open, args.dev_html))
 }
 
 // ---------------------------------------------------------------------------
@@ -91,12 +96,18 @@ fn resolve_db_path(arg: Option<PathBuf>) -> Result<PathBuf> {
 #[derive(Clone)]
 struct AppState {
     db_path: Arc<PathBuf>,
+    dev_html: Option<Arc<PathBuf>>,
 }
 
-async fn serve(db_path: PathBuf, port: u16, no_open: bool) -> Result<()> {
+async fn serve(db_path: PathBuf, port: u16, no_open: bool, dev_html: Option<PathBuf>) -> Result<()> {
     let state = AppState {
         db_path: Arc::new(db_path),
+        dev_html: dev_html.map(Arc::new),
     };
+
+    if let Some(path) = &state.dev_html {
+        eprintln!("sct gui: dev mode — serving HTML from {}", path.display());
+    }
 
     let app = Router::new()
         .route("/", get(serve_index))
@@ -140,8 +151,19 @@ async fn serve(db_path: PathBuf, port: u16, no_open: bool) -> Result<()> {
 // Handlers
 // ---------------------------------------------------------------------------
 
-async fn serve_index() -> Html<&'static str> {
-    Html(INDEX_HTML)
+async fn serve_index(State(state): State<AppState>) -> Response {
+    if let Some(path) = &state.dev_html {
+        match std::fs::read_to_string(path.as_ref()) {
+            Ok(content) => Html(content).into_response(),
+            Err(e) => (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("dev_html: failed to read {}: {}", path.display(), e),
+            )
+                .into_response(),
+        }
+    } else {
+        Html(INDEX_HTML).into_response()
+    }
 }
 
 #[derive(Deserialize)]
