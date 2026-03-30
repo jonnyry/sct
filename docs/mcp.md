@@ -13,7 +13,7 @@ Once connected, you can ask Claude things like:
 - *"What are the ancestors of concept 22298006?"*
 - *"Find SNOMED concepts related to 'type 2 diabetes complications'."*
 
-Claude uses five tools under the hood: `snomed_search`, `snomed_concept`, `snomed_children`, `snomed_ancestors`, and `snomed_hierarchy`.
+Claude uses six tools under the hood: `snomed_search`, `snomed_concept`, `snomed_children`, `snomed_ancestors`, `snomed_hierarchy`, and `snomed_map` (for UK installations).
 
 ---
 
@@ -165,6 +165,45 @@ Returns: `id`, `preferred_term`, `fsn`, ordered by preferred term.
 Default limit: 100. Maximum: 1000.
 
 Common hierarchy names: `Clinical finding`, `Procedure`, `Substance`, `Organism`, `Body structure`, `Pharmaceutical / biologic product`, `Observable entity`, `Event`, `Social context`, `Environment / geographical location`, `Staging and scales`, `Qualifier value`, `Record artefact`, `Physical object`, `Physical force`, `Foundation metadata concept`, `SNOMED CT Model Component`, `Attribute`, `Namespace concept`.
+
+---
+
+### `snomed_map`
+
+Cross-map between SNOMED CT and legacy CTV3 (Clinical Terms Version 3). Provides bidirectional lookup.
+
+**Availability:** This tool is only populated when the database was built from a UK NHS SNOMED CT release
+(UK Monolith or UK Clinical Edition from NHS TRUD), which includes the CTV3 simple map reference set.
+
+**SNOMED → CTV3:**
+
+```json
+{
+  "code": "22298006",
+  "terminology": "snomed"
+}
+```
+
+Returns all CTV3 codes mapped to the SNOMED CT concept. Example response:
+
+```json
+{
+  "snomed_id": "22298006",
+  "ctv3_codes": ["X200E"],
+  "read2_codes": []
+}
+```
+
+**CTV3 → SNOMED:**
+
+```json
+{
+  "code": "X200E",
+  "terminology": "ctv3"
+}
+```
+
+Returns the mapped SNOMED CT concept(s) with full details: `id`, `preferred_term`, `fsn`, `hierarchy`.
 
 ---
 

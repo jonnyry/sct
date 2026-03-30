@@ -58,15 +58,16 @@ pub struct LangRefsetRow {
 
 /// A row from a simple map reference set file.
 ///
-/// Used for CTV3 (`der2_ccsRefset_CTVMap_*_Snapshot_*.txt`) and
-/// Read v2 (`der2_ccsRefset_ReadCodeMap_*_Snapshot_*.txt`) cross-maps.
+/// Used for CTV3 cross-maps (`der2_sRefset_SimpleMap*Snapshot*.txt`).
+/// The CTV3 mappings are identified by refset ID `900000000000497000`.
 ///
 /// Columns (TSV): id effectiveTime active moduleId refsetId referencedComponentId mapTarget
 #[derive(Debug)]
 pub struct SimpleMapRow {
     pub active: bool,
+    pub refset_id: String,               // identifies the terminology (e.g. CTV3)
     pub referenced_component_id: String, // SNOMED CT SCTID
-    pub map_target: String,              // CTV3 or Read v2 code
+    pub map_target: String,              // CTV3 or other legacy code
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +77,8 @@ pub const TYPE_FSN: &str = "900000000000003001";
 pub const TYPE_SYNONYM: &str = "900000000000013009";
 pub const IS_A: &str = "116680003";
 pub const PREFERRED: &str = "900000000000548007";
+/// Refset ID for the SNOMED CT → CTV3 simple map reference set.
+pub const REFSET_CTV3_SIMPLE_MAP: &str = "900000000000497000";
 
 // ---------------------------------------------------------------------------
 // RF2 file discovery
@@ -87,10 +90,9 @@ pub struct Rf2Files {
     pub description_files: Vec<PathBuf>,
     pub relationship_files: Vec<PathBuf>,
     pub lang_refset_files: Vec<PathBuf>,
-    /// CTV3 simple map files (`der2_ccsRefset_CTVMap*Snapshot*.txt`)
-    pub ctv3_map_files: Vec<PathBuf>,
-    /// Read v2 simple map files (`der2_ccsRefset_ReadCodeMap*Snapshot*.txt`)
-    pub read2_map_files: Vec<PathBuf>,
+    /// Simple map reference set files (`der2_sRefset_SimpleMap*Snapshot*.txt`).
+    /// Contains CTV3 and other cross-maps, distinguished by refset ID within each file.
+    pub simple_map_files: Vec<PathBuf>,
 }
 
 /// Walk the RF2 directory tree and collect snapshot TSV paths by type.
@@ -130,16 +132,11 @@ pub fn discover_rf2_files(rf2_dir: &Path) -> Result<Rf2Files> {
             && name.ends_with(".txt")
         {
             files.lang_refset_files.push(path.to_path_buf());
-        } else if name.contains("CTVMap")
+        } else if name.starts_with("der2_sRefset_SimpleMap")
             && name.contains("Snapshot")
             && name.ends_with(".txt")
         {
-            files.ctv3_map_files.push(path.to_path_buf());
-        } else if name.contains("ReadCodeMap")
-            && name.contains("Snapshot")
-            && name.ends_with(".txt")
-        {
-            files.read2_map_files.push(path.to_path_buf());
+            files.simple_map_files.push(path.to_path_buf());
         }
     }
 
@@ -147,8 +144,7 @@ pub fn discover_rf2_files(rf2_dir: &Path) -> Result<Rf2Files> {
     files.description_files.sort();
     files.relationship_files.sort();
     files.lang_refset_files.sort();
-    files.ctv3_map_files.sort();
-    files.read2_map_files.sort();
+    files.simple_map_files.sort();
 
     Ok(files)
 }
@@ -248,7 +244,7 @@ pub fn parse_lang_refset(path: &Path) -> Result<Vec<LangRefsetRow>> {
     Ok(rows)
 }
 
-/// Parse a simple map reference set file (CTV3 or Read v2 cross-map).
+/// Parse a simple map reference set file.
 ///
 /// Columns: id effectiveTime active moduleId refsetId referencedComponentId mapTarget
 pub fn parse_simple_map(path: &Path) -> Result<Vec<SimpleMapRow>> {
@@ -264,6 +260,7 @@ pub fn parse_simple_map(path: &Path) -> Result<Vec<SimpleMapRow>> {
         }
         rows.push(SimpleMapRow {
             active,
+            refset_id: record.get(4).unwrap_or("").to_string(),
             referenced_component_id: record.get(5).unwrap_or("").to_string(),
             map_target,
         });
@@ -308,7 +305,7 @@ impl Rf2Dataset {
         let mut attributes: HashMap<String, Vec<(String, String, String)>> = HashMap::new();
         let mut acceptability: HashMap<String, Acceptability> = HashMap::new();
         let mut ctv3_maps: HashMap<String, Vec<String>> = HashMap::new();
-        let mut read2_maps: HashMap<String, Vec<String>> = HashMap::new();
+        let read2_maps: HashMap<String, Vec<String>> = HashMap::new();
 
         // --- Concepts ---
         for path in &files.concept_files {
@@ -378,11 +375,11 @@ impl Rf2Dataset {
         }
         eprintln!("  {} acceptability entries", acceptability.len());
 
-        // --- CTV3 maps ---
-        for path in &files.ctv3_map_files {
-            eprintln!("  Loading CTV3 map from {}", path.display());
+        // --- CTV3 maps (refset 900000000000497000 within SimpleMap files) ---
+        for path in &files.simple_map_files {
+            eprintln!("  Loading simple maps from {}", path.display());
             for row in parse_simple_map(path)? {
-                if row.active {
+                if row.active && row.refset_id == REFSET_CTV3_SIMPLE_MAP {
                     ctv3_maps
                         .entry(row.referenced_component_id)
                         .or_default()
@@ -391,19 +388,6 @@ impl Rf2Dataset {
             }
         }
         eprintln!("  {} concepts with CTV3 mappings", ctv3_maps.len());
-
-        // --- Read v2 maps ---
-        for path in &files.read2_map_files {
-            eprintln!("  Loading Read v2 map from {}", path.display());
-            for row in parse_simple_map(path)? {
-                if row.active {
-                    read2_maps
-                        .entry(row.referenced_component_id)
-                        .or_default()
-                        .push(row.map_target);
-                }
-            }
-        }
         eprintln!("  {} concepts with Read v2 mappings", read2_maps.len());
 
         Ok(Rf2Dataset {
@@ -562,8 +546,7 @@ mod tests {
             description_files: vec![descs_f.path().to_path_buf()],
             relationship_files: vec![rels_f.path().to_path_buf()],
             lang_refset_files: vec![lang_f.path().to_path_buf()],
-            ctv3_map_files: vec![],
-            read2_map_files: vec![],
+            simple_map_files: vec![],
         };
 
         let ds = Rf2Dataset::load(&files).unwrap();
@@ -596,6 +579,7 @@ mod tests {
         // Both rows parsed; inactive row still returned (caller decides to filter)
         assert_eq!(rows.len(), 2);
         assert!(rows[0].active);
+        assert_eq!(rows[0].refset_id, "900000000000497000");
         assert_eq!(rows[0].referenced_component_id, "22298006");
         assert_eq!(rows[0].map_target, "X76Hb");
         assert!(!rows[1].active);

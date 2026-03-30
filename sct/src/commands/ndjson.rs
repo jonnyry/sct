@@ -55,6 +55,7 @@ pub fn run(args: Args) -> Result<()> {
             .relationship_files
             .extend(found.relationship_files);
         all_files.lang_refset_files.extend(found.lang_refset_files);
+        all_files.simple_map_files.extend(found.simple_map_files);
     }
 
     if all_files.concept_files.is_empty() {
@@ -65,11 +66,12 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     eprintln!(
-        "Found: {} concept, {} description, {} relationship, {} lang refset file(s)",
+        "Found: {} concept, {} description, {} relationship, {} lang refset, {} simple map file(s)",
         all_files.concept_files.len(),
         all_files.description_files.len(),
         all_files.relationship_files.len(),
         all_files.lang_refset_files.len(),
+        all_files.simple_map_files.len(),
     );
 
     // --- Load dataset ---

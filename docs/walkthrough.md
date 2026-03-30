@@ -34,7 +34,9 @@ SNOMED RF2 release
 ## 1 — Installation
 
 ```bash
-cargo install sct
+git clone repo
+cd sct
+cargo install --path . --features "sqlite parquet tui gui"
 ```
 
 Or download a pre-built binary from GitHub Releases.
@@ -61,10 +63,14 @@ SNOMED CT is distributed as RF2 (Release Format 2) — a set of TSV files.
 
 - **UK edition (recommended):** Download the UK Monolith from [NHS TRUD](https://isd.digital.nhs.uk/trud)
   - Includes: International release + UK clinical extension + dm+d drugs extension
+  - Monolith (item 105) is preferred over the Clinical Edition (item 101) — it's a single zip with everything pre-merged
 - **International edition:** Download from [SNOMED MLDS](https://mlds.ihtsdotools.org/)
 - **IPS Free Set:** Available without affiliate membership from SNOMED MLDS
 
 `sct` accepts ZIP files or extracted directories.
+
+> **Confused by the NHS TRUD download options?** See [UK Edition structure](uk-edition-structure.md)
+> for a plain-English guide to the different release types, what's in each zip, and how to decode the filenames.
 
 ---
 
@@ -98,7 +104,7 @@ sct ndjson --rf2 SnomedCT_InternationalRF2_PRODUCTION_*.zip \
 {
   "id": "22298006",
   "fsn": "Myocardial infarction (disorder)",
-  "preferred_term": "Heart attack",
+  "preferred_term": "Myocardial infarction",
   "synonyms": ["Cardiac infarction", "Infarction of heart", "MI - Myocardial infarction"],
   "hierarchy": "Clinical finding",
   "hierarchy_path": ["SNOMED CT concept", "Clinical finding", "Disorder of cardiovascular system",
@@ -112,7 +118,9 @@ sct ndjson --rf2 SnomedCT_InternationalRF2_PRODUCTION_*.zip \
     "finding_site": [{"id": "302509004", "fsn": "Entire heart (body structure)"}],
     "associated_morphology": [{"id": "55641003", "fsn": "Infarct (morphologic abnormality)"}]
   },
-  "schema_version": 1
+  "ctv3_codes": ["X200E"],
+  "read2_codes": [],
+  "schema_version": 2
 }
 ```
 
@@ -170,6 +178,71 @@ sct lexical --db snomed.db --query "amox*"      # prefix search
 
 The `.db` file is a single portable file. Copy it, version it with git-lfs, share it via
 scp. No installation required at query time — `sqlite3` is sufficient.
+
+---
+
+## 4a — UK Crossmaps: CTV3
+
+**UK edition only.** The CTV3 (Clinical Terms Version 3) crossmaps are available when building from a
+UK NHS SNOMED CT release (UK Monolith or UK Clinical Edition from [NHS TRUD](https://isd.digital.nhs.uk/trud)).
+They are parsed automatically from the `der2_sRefset_SimpleMap` reference set (refset ID `900000000000497000`).
+
+CTV3 is the legacy NHS terminology used in GP and secondary care systems before SNOMED CT. Having
+SNOMED → CTV3 mappings is useful for:
+- **Migrating data** from legacy systems that recorded CTV3 codes
+- **Interoperability** with older clinical records
+- **Reporting** to systems that still consume CTV3
+
+Over 524,000 concepts have CTV3 mappings in the UK Monolith release. Read v2 codes are not distributed
+as a separate refset in current UK releases.
+
+**Data structure:**
+
+The SQLite database includes:
+- `concepts.ctv3_codes` — JSON array of CTV3 codes for each concept
+- `concept_maps` table — reverse index for fast CTV3 code → SNOMED lookup
+
+**Example queries:**
+
+```bash
+# Forward: SNOMED → CTV3 code
+sqlite3 snomed.db "SELECT id, preferred_term, ctv3_codes FROM concepts WHERE id = '22298006'"
+# 22298006|Myocardial infarction|["X200E"]
+
+# Reverse: CTV3 code → SNOMED concept
+sqlite3 snomed.db "
+  SELECT c.id, c.preferred_term, c.hierarchy
+  FROM concepts c
+  JOIN concept_maps m ON c.id = m.concept_id
+  WHERE m.code = 'X200E' AND m.terminology = 'ctv3'"
+# 22298006|Myocardial infarction|Clinical finding
+
+# Bulk export: all concepts with CTV3 mappings (useful for migration)
+sqlite3 snomed.db "
+  SELECT id, preferred_term, ctv3_codes
+  FROM concepts
+  WHERE json_array_length(ctv3_codes) > 0" > ctv3-migration.csv
+```
+
+**Programmatic access:**
+
+```bash
+# Extract from NDJSON with jq
+jq 'select(.ctv3_codes | length > 0) | {id, preferred_term, ctv3_codes}' snomed.ndjson
+
+# Python
+import json
+with open('snomed.ndjson') as f:
+    for line in f:
+        rec = json.loads(line)
+        if rec['ctv3_codes']:
+            print(f"{rec['id']}\t{rec['preferred_term']}\t{rec['ctv3_codes']}")
+```
+
+**Available without MCP:**
+
+CTV3 mappings are embedded in the canonical NDJSON artefact and flow through all downstream formats
+(SQLite, Parquet, Markdown). The `snomed_map` MCP tool provides the same lookups interactively for Claude.
 
 ---
 
@@ -344,6 +417,7 @@ sct mcp --db snomed.db
 | `snomed_children` | Immediate IS-A children of a concept |
 | `snomed_ancestors` | Full ancestor chain to SNOMED root |
 | `snomed_hierarchy` | All concepts within a top-level hierarchy |
+| `snomed_map` | Cross-map between SNOMED CT and CTV3 (UK only) |
 
 **Example Claude interaction:**
 
@@ -351,6 +425,32 @@ sct mcp --db snomed.db
 
 Claude calls `snomed_children` with SCTID `44054006`, receives the list, and answers
 with accurate SNOMED-grounded terminology.
+
+**UK edition: CTV3 cross-mapping**
+
+If your database was built from a UK NHS SNOMED CT release, Claude also has access to
+`snomed_map` — a bidirectional lookup tool for CTV3 legacy codes.
+
+Example Claude interaction:
+
+> "What's the CTV3 code for myocardial infarction?"
+
+Claude calls `snomed_map` with SCTID `22298006` and terminology `snomed`, receives:
+
+```json
+{
+  "snomed_id": "22298006",
+  "ctv3_codes": ["X200E"],
+  "read2_codes": []
+}
+```
+
+Or in reverse:
+
+> "I have a legacy CTV3 code X200E. What's the current SNOMED concept?"
+
+Claude calls `snomed_map` with code `X200E` and terminology `ctv3`, receives full
+SNOMED concept details and provides context with the modern terminology.
 
 **MCP server properties:**
 - Startup time < 5 ms (well under the 100 ms MCP budget)
