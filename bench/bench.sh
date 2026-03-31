@@ -8,7 +8,7 @@
 #   bench/bench.sh [OPTIONS]
 #
 # Options:
-#   --server URL        FHIR base URL  e.g. https://terminology.openehr.org/fhir
+#   --server URL        FHIR base URL  e.g. https://terminology.myserver.org/fhir
 #   --db PATH           snomed.db path (default: ./snomed.db)
 #   --runs N            timed iterations per operation (default: 5)
 #   --warmup N          warmup iterations before timing (default: 1)

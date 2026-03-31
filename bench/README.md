@@ -3,7 +3,7 @@
 automated benchmarking suite for `sct` — compares local SQLite performance
 against any FHIR R4 terminology server across six operations.
 
-## requirements
+## Requirements
 
 | tool | required | install |
 |:---|:---|:---|
@@ -15,21 +15,21 @@ against any FHIR R4 terminology server across six operations.
 
 without `hyperfine`, timing falls back to `date +%s%N` (linux only; less accurate).
 
-## quick start
+## Quick start
 
 ```bash
 # local-only benchmark (no remote server required)
 bench/bench.sh --db snomed.db --no-remote
 
 # compare against a FHIR terminology server
-bench/bench.sh --db snomed.db --server https://terminology.openehr.org/fhir
+bench/bench.sh --db snomed.db --server https://terminology.myserver.org/fhir
 
 # write results to benchmarks.md in the project root
-bench/bench.sh --db snomed.db --server https://terminology.openehr.org/fhir \
+bench/bench.sh --db snomed.db --server https://terminology.myserver.org/fhir \
   --write-benchmarks
 ```
 
-## options
+## Options
 
 ```
 --server URL        FHIR base URL (required for remote comparison)
@@ -46,7 +46,7 @@ bench/bench.sh --db snomed.db --server https://terminology.openehr.org/fhir \
 --write-benchmarks  write results to ./benchmarks.md
 ```
 
-## operations
+## Operations
 
 | operation | local implementation | fhir equivalent |
 |:---|:---|:---|
@@ -57,7 +57,7 @@ bench/bench.sh --db snomed.db --server https://terminology.openehr.org/fhir \
 | subsumption test | CTE ancestor check | `CodeSystem/$subsumes` |
 | bulk lookup (15) | `WHERE id IN (…)` (single query) | batch bundle or sequential `$lookup` |
 
-## fairness
+## Fairness
 
 - **local times include sqlite3 process startup** (~5–15 ms). this reflects
   real cli usage, not in-process query time.
@@ -69,13 +69,39 @@ bench/bench.sh --db snomed.db --server https://terminology.openehr.org/fhir \
 - **ping latency** to the remote server is measured and reported so readers
   can distinguish server latency from network latency.
 
-## adding operations
+## Adding operations
 
 create `bench/operations/myop.sh` that defines `run_myop()` and calls
 `append_result`. then pass `--operations myop` or include it in the default
 list in `bench.sh`.
 
-## notes
+## Run a local instance of Snowstorm Lite (FHIR terminology server) for testing
+
+You can run a local instance of Snowstorm Lite in Docker for testing against a real terminology server. Make sure to allocate enough memory (at least 16Gb) to the Java heap to avoid out-of-memory errors, especially with larger SNOMED CT releases.
+
+Run Snowstorm Lite in Docker with the following command:
+
+```bash
+docker run -p 8080:8080 --name=snowstorm-lite \
+  -v snowstorm-lite-volume:/app/lucene-index \
+  -e JAVA_TOOL_OPTIONS="-Xms8g -Xmx16g" \
+  snomedinternational/snowstorm-lite \
+  --index.path=lucene-index/data \
+  --admin.password=yourAdminPassword
+```
+
+Load in the Clinical Edition RF2 release (or the full UK Monolith if you can get it to work!) through the Snowstorm Lite admin interface:
+
+```bash
+curl -u admin:yourAdminPassword \
+  --form file=@uk_sct2cl_41.6.0_20260311000001Z.zip \
+  --form version-uri="http://snomed.info/sct/83821000000107/version/20260311" \
+  http://localhost:8080/fhir-admin/load-package
+```
+
+Then pass in `--server http://localhost:8080/fhir` to the benchmark script.
+
+## Notes
 
 - `date +%s%N` requires linux (GNU coreutils). on macOS, install
   `gdate` via `brew install coreutils` and symlink it, or use hyperfine.

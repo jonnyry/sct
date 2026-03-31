@@ -47,7 +47,7 @@ bench/
 bench/bench.sh [OPTIONS]
 
 Options:
-  --server URL      Base URL of FHIR terminology server (e.g. https://terminology.openehr.org/fhir)
+  --server URL      Base URL of FHIR terminology server (e.g. https://terminology.myserver.org/fhir)
   --db PATH         Path to snomed.db (default: ./snomed.db)
   --runs N          Timed iterations per operation (default: 10)
   --warmup N        Warmup runs before timing (default: 2)
@@ -61,6 +61,8 @@ Options:
 ---
 
 ## Test fixtures
+
+If you think you know of better fixtures I could use, then please let me know by creating an Issue. The goal is to have a fixed set of queries that are representative of real-world usage, and that can be used to track performance over time. The current fixtures are:
 
 **`bench/fixtures/concepts.txt`**
 
@@ -190,7 +192,7 @@ time_operation() {
 ```
 sct benchmark — 2026-03-28
   Local DB : /home/marcus/snomed.db  (v20260101, 831,132 concepts)
-  Remote   : https://terminology.openehr.org/fhir
+  Remote   : https://terminology.myserver.org/fhir
   Runs     : 10 (+ 2 warmup)
 
 ┌──────────────────────────┬───────────────────┬───────────────────┬──────────────────┐

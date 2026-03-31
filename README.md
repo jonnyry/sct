@@ -1,6 +1,8 @@
 # sct
 
-A local-first SNOMED CT toolchain. One binary — from raw RF2 release to SQL, Parquet, Markdown, TUI, GUI and MCP/LLM tool use.
+A local-first SNOMED CT toolchain that's 10-100x faster than IHTSDO Snowstorm. One binary — from raw RF2 release to NDJSON, then SQL, Parquet, Markdown, TUI, GUI, graphs and MCP/LLM tool use. All on your machine, no network calls, REST APIs, or external servers required.
+
+This is very much a work in progress, but it's ready to use and I would very much like feedback on how it performs for you.
 
 ```
 RF2 Snapshot
@@ -14,40 +16,59 @@ canonical NDJSON artefact
     │       ├── sct lexical  ──▶ keyword search (FTS5)
     │       └── sct mcp      ──▶ stdio MCP server (Claude Desktop / Claude Code)
     ├── sct parquet ──▶ snomed.parquet   (DuckDB / analytics)
-    ├── sct markdown──▶ snomed-concepts/ (RAG / LLM file reading)
+    ├── sct markdown──▶ snomed-concepts/ (RAG / LLM file reading) (untested)
     └── sct embed   ──▶ snomed-embeddings.arrow  (semantic vector search)
                               │
                          sct semantic ──▶ cosine similarity search (requires Ollama)
 
 sct info  <file>              inspect any artefact
-sct diff  --old <f> --new <f> compare two NDJSON releases
-sct completions <shell>       generate shell completions
+sct diff  --old <f> --new <f> compare two NDJSON releases (untested)
+sct gui                       browser-based UI served over localhost
+                              with graph visualisation and point-and-click exploration.
+sct tui                       experimental terminal UI to explore concepts and relationships.
+sct completions <shell>       generate shell completions (optional)
 ```
 
 The NDJSON artefact at the centre is a stable, versionable, greppable file. All other outputs are derived from it and can be regenerated at any time.
 
 ---
 
-## Why
+## Why is this needed?
 
-`sct` joins RF2 once — deterministically — and gives you standard files you query offline forever.
+`sct` joins the relatively incomprehensible RF2 files into a single NDJSON artefact. For the UK Monolith Edition this NDJSON file is over 1Gb but it was still possible to load into VSCode to get a feel for the data structure, which is something that is impossible with the original RF2 files. This also means you can use standard tools like `jq` or `ripgrep` to query the data without needing a custom server or API.
 
-SNOMED CT is distributed as RF2 — a set of tab-separated files that require joining across multiple tables to get anything useful. The entire healthcare industry relies on remote terminology servers for this, with the overhead of network calls and REST APIs. `sct` performs the join once and produces standard files you can query locally with `sqlite3`, `duckdb`, `jq`, `ripgrep`, or an LLM. No server, no API key, no network.
+SNOMED CT is distributed as RF2 — a set of tab-separated files that require joining across multiple tables to get anything useful. The entire healthcare industry relies on remote terminology servers for this, with the overhead of network calls and REST APIs. `sct` performs the join once creating an NDJSON artefact, and produces standard files you can query locally with `sqlite3`, `duckdb`, `jq`, `ripgrep`, or an LLM. No server, no API key, no network.
+
+## Speed comparison
+
+| Operation | `sct` + SQLite | Snowstorm Lite | `sct` speedup |
+| --- | --- | --- | --- |
+| Import - Clinical Edition | 22s | 209s | ~10x faster |
+| Import - Full UK Monolith | ~57s | Failed (OOM)* | ∞ |
+| Single concept lookup (SCTID) | 6ms | 491ms | ~80x faster |
+| Free-text search (10 results) | 2ms | 202ms | ~100x faster |
+
+> * Snowstorm Lite running in Docker with 24Gb of Java heap allocation ran out of memory on the full UK Monolith, which has 831k concepts. `sct` handled it in under a minute.
+
+For more detailed benchmarks, see [docs/benchmarks.md](docs/benchmarks.md). Feel free to run the benchmarks yourself and share your results, perhaps as an Issue.
 
 ---
 
 ## Quick start
 
 ```bash
-# 1. Install
+# 1. Clone the repository
+git clone https://github.com/pacharanero/sct
+
+# 2. Install
 cargo install --path sct
 
-# 2. Download SNOMED CT
+# 3. Download a distribution of SNOMED CT
 #    UK:            https://isd.digital.nhs.uk/ → Monolith Edition, RF2: Snapshot
 #                   (free under NHS England national licence — access is immediate)
 #    International: https://mlds.ihtsdotools.org/ (allow up to a week for approval)
 
-# 3. Convert RF2 → NDJSON (~10s for 831k concepts)
+# 4. Convert RF2 → NDJSON (~10s for 831k concepts)
 #    Pass the .zip directly — no manual extraction needed
 sct ndjson --rf2 SnomedCT_MonolithRF2_PRODUCTION_20260311T120000Z.zip
 # ✓  831,487 concepts written → snomedct-monolithrf2-production-20260311t120000z.ndjson
@@ -62,6 +83,10 @@ sqlite3 snomed.db \
 # 6. Start the MCP server for Claude Desktop
 sct mcp --db snomed.db
 ```
+
+## Documentation
+
+For all further information see the full documentation by either exploring the [docs/](docs/) directory or running the docs site locally with `s/docs`, or visit the docs on the GitHub Pages site: https://pacharanero.github.io/sct/
 
 ---
 
@@ -142,8 +167,16 @@ Download the **Monolith Snapshot** if available — it bundles the international
 
 ---
 
-## See also
+## Feedback
 
-- [spec.md](spec.md) — technical specification for all layers
-- [roadmap.md](roadmap.md) — implementation progress
-- [BENCHMARKS.md](BENCHMARKS.md) — timing measurements
+Please try it out and let me know how it performs for you, especially if you have a use case that isn't well supported by the current subcommands. Open an issue for anything you want to report, from bugs to feature requests to general feedback.
+
+## Contributing
+
+Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute, report issues, or request features.
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for planned features, improvements, and long-term vision for the project.
+
+
