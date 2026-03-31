@@ -1,4 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-exec cargo install --path sct
+
+features=()
+for arg in "$@"; do
+  case "$arg" in
+    --tui)  features+=("tui") ;;
+    --gui)  features+=("gui") ;;
+    --full) features+=("full") ;;
+    *) echo "Unknown option: $arg" >&2; exit 1 ;;
+  esac
+done
+
+if [[ ${#features[@]} -gt 0 ]]; then
+  feature_list=$(IFS=,; echo "${features[*]}")
+  exec cargo install --path sct --features "$feature_list"
+else
+  exec cargo install --path sct
+fi
