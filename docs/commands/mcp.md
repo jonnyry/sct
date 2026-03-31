@@ -1,6 +1,6 @@
 Start a local MCP (Model Context Protocol) server backed by the SNOMED CT SQLite database. Exposes SNOMED CT as a set of tools for Claude Desktop, Claude Code, Cursor, and any other MCP-compatible AI client.
 
-Single binary, no runtime dependencies, read-only, starts in under 5 ms.
+Single binary, no runtime dependencies, starts in under 5 ms. The SNOMED CT database is always read-only; codelist tools can read and write `.codelist` files.
 
 ---
 
@@ -23,15 +23,30 @@ sct mcp --db <DB> [--embeddings <ARROW>] [--model <MODEL>] [--ollama-url <URL>]
 
 ## Tools exposed
 
-| Tool | Always available | Description |
+### SNOMED CT lookup
+
+| Tool | Available | Description |
 |---|---|---|
-| `snomed_search` | ✅ | Free-text search — returns concept ID, preferred term, FSN, hierarchy |
-| `snomed_concept` | ✅ | Full concept detail by SCTID |
-| `snomed_children` | ✅ | Immediate IS-A children of a concept |
-| `snomed_ancestors` | ✅ | Full ancestor chain up to root |
-| `snomed_hierarchy` | ✅ | List all concepts in a named top-level hierarchy |
-| `snomed_map` | ✅ (UK edition only) | Bidirectional SNOMED↔CTV3/Read v2 cross-map |
+| `snomed_search` | Always | Free-text search — returns concept ID, preferred term, FSN, hierarchy |
+| `snomed_concept` | Always | Full concept detail by SCTID |
+| `snomed_children` | Always | Immediate IS-A children of a concept |
+| `snomed_ancestors` | Always | Full ancestor chain up to root |
+| `snomed_hierarchy` | Always | List all concepts in a named top-level hierarchy |
+| `snomed_map` | Always (UK edition only) | Bidirectional SNOMED↔CTV3/Read v2 cross-map |
 | `snomed_semantic_search` | Requires `--embeddings` | Nearest-neighbour semantic search via vector embeddings |
+
+### Code list management
+
+| Tool | Description |
+|---|---|
+| `codelist_list` | List `.codelist` files in a directory, with title, status, and concept count |
+| `codelist_read` | Read a codelist — returns metadata and concept lists (active, excluded, pending) |
+| `codelist_new` | Scaffold a new `.codelist` file with YAML front-matter template |
+| `codelist_add` | Add concept(s) by SCTID — resolves preferred terms from the database |
+| `codelist_remove` | Move a concept to explicitly excluded, preserving the audit trail |
+| `codelist_validate` | Validate against the database — inactive concepts, term drift, pending items |
+| `codelist_stats` | Concept count, hierarchy breakdown, leaf/intermediate ratio, release age |
+| `codelist_export` | Export the codelist as `csv`, `opencodelists-csv`, or `markdown` |
 
 ---
 
@@ -98,6 +113,26 @@ Claude calls `snomed_map` with SCTID `22298006` and terminology `snomed`, receiv
 
 Claude calls `snomed_map` with code `X200E` and terminology `ctv3`, receives the full SNOMED concept details.
 
+### Building a codelist interactively
+
+> "Create a codelist for asthma diagnosis codes in codelists/asthma.codelist, then find the main asthma concepts and add them."
+
+Claude:
+1. Calls `codelist_new` to scaffold the file
+2. Calls `snomed_search` with `"asthma"` to find candidate concepts
+3. Calls `snomed_children` on the top-level asthma concept to explore subtypes
+4. Calls `codelist_add` with the chosen SCTIDs
+5. Calls `codelist_validate` to confirm everything is active and correct
+6. Calls `codelist_stats` to summarise the result
+
+> "The occupational asthma concept shouldn't be in there — exclude it with a note."
+
+Claude calls `codelist_remove` with the SCTID and `comment: "occupational pathway — separate codelist"`.
+
+> "Export this as CSV for upload."
+
+Claude calls `codelist_export` with `format: "opencodelists-csv"` and returns the content.
+
 ---
 
 ## Verifying startup
@@ -113,6 +148,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
 
 - **Transport:** stdio only (JSON-RPC 2.0 over stdin/stdout)
 - **Protocol versions supported:** MCP 2024-11-05 (Content-Length framing) and MCP 2025-03-26+ (newline-delimited JSON). The version is negotiated on `initialize`.
-- **Read-only:** never modifies the database
+- **Database access:** read-only — the SNOMED CT database is never modified
+- **Codelist files:** `codelist_new`, `codelist_add`, and `codelist_remove` write `.codelist` files on disk; all other tools are read-only
 - **Startup time:** < 5 ms (well under the 100 ms MCP budget)
 - **Schema version check:** validates `schema_version` on startup; warns if the database is newer than the binary, refuses to start if the gap exceeds 5 versions

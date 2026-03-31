@@ -277,7 +277,7 @@ pub enum ConceptLine {
 }
 
 impl ConceptLine {
-    fn sctid(&self) -> Option<&str> {
+    pub fn sctid(&self) -> Option<&str> {
         match self {
             ConceptLine::Active { id, .. } => Some(id),
             ConceptLine::Excluded { id, .. } => Some(id),
@@ -392,7 +392,7 @@ fn split_id_term(s: &str) -> Option<(String, String)> {
     }
 }
 
-fn write_codelist(cl: &CodelistFile, path: &Path) -> Result<()> {
+pub fn write_codelist(cl: &CodelistFile, path: &Path) -> Result<()> {
     let yaml = serde_yml::to_string(&cl.front_matter)
         .context("serialising YAML front-matter")?;
     let mut out = format!("---\n{}---\n", yaml);
@@ -429,7 +429,7 @@ fn render_body_line(line: &ConceptLine) -> String {
     }
 }
 
-fn today() -> String {
+pub fn today() -> String {
     Local::now().format("%Y-%m-%d").to_string()
 }
 
@@ -913,7 +913,7 @@ fn cmd_export(args: ExportArgs) -> Result<()> {
     Ok(())
 }
 
-fn export_csv(active: &[(&str, &str)]) -> String {
+pub fn export_csv(active: &[(&str, &str)]) -> String {
     let mut out = String::from("sctid,preferred_term\n");
     for (id, term) in active {
         out.push_str(&format!("{},{}\n", id, csv_escape(term)));
@@ -921,7 +921,7 @@ fn export_csv(active: &[(&str, &str)]) -> String {
     out
 }
 
-fn export_opencodelists_csv(active: &[(&str, &str)]) -> String {
+pub fn export_opencodelists_csv(active: &[(&str, &str)]) -> String {
     let mut out = String::from("code,term\n");
     for (id, term) in active {
         out.push_str(&format!("{},{}\n", id, csv_escape(term)));
@@ -929,7 +929,7 @@ fn export_opencodelists_csv(active: &[(&str, &str)]) -> String {
     out
 }
 
-fn export_markdown(fm: &FrontMatter, active: &[(&str, &str)]) -> String {
+pub fn export_markdown(fm: &FrontMatter, active: &[(&str, &str)]) -> String {
     let mut out = format!("# {}\n\n", fm.title);
     out.push_str(&format!("**Description:** {}\n\n", fm.description));
     out.push_str(&format!(
@@ -962,7 +962,7 @@ fn open_db(path: &Path) -> Result<Connection> {
     Ok(conn)
 }
 
-fn lookup_preferred_term(conn: &Connection, id: &str) -> Result<String> {
+pub fn lookup_preferred_term(conn: &Connection, id: &str) -> Result<String> {
     conn.query_row(
         "SELECT preferred_term FROM concepts WHERE id = ?1 AND active = 1",
         params![id],
@@ -971,7 +971,7 @@ fn lookup_preferred_term(conn: &Connection, id: &str) -> Result<String> {
     .with_context(|| format!("SCTID {id} not found or inactive"))
 }
 
-fn lookup_concept_row(conn: &Connection, id: &str) -> Result<Option<(String, bool)>> {
+pub fn lookup_concept_row(conn: &Connection, id: &str) -> Result<Option<(String, bool)>> {
     match conn.query_row(
         "SELECT preferred_term, active FROM concepts WHERE id = ?1",
         params![id],
@@ -983,7 +983,7 @@ fn lookup_concept_row(conn: &Connection, id: &str) -> Result<Option<(String, boo
     }
 }
 
-fn lookup_hierarchy_and_children(conn: &Connection, id: &str) -> Result<Option<(String, i64)>> {
+pub fn lookup_hierarchy_and_children(conn: &Connection, id: &str) -> Result<Option<(String, i64)>> {
     match conn.query_row(
         "SELECT hierarchy, children_count FROM concepts WHERE id = ?1",
         params![id],

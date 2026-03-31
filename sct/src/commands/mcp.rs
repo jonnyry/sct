@@ -29,6 +29,11 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
+use crate::commands::codelist::{
+    export_csv, export_markdown, export_opencodelists_csv, lookup_concept_row,
+    lookup_hierarchy_and_children, lookup_preferred_term, read_codelist, today, write_codelist,
+    CodelistFile, ConceptLine, FrontMatter, Warning,
+};
 use crate::commands::semantic;
 use crate::schema::SCHEMA_VERSION;
 
@@ -456,6 +461,107 @@ fn handle_tools_list(semantic_cfg: Option<&SemanticConfig>) -> Value {
         }));
     }
 
+    // Codelist tools — always registered
+    tools.push(json!({
+        "name": "codelist_list",
+        "description": "List .codelist files in a directory. Returns file paths with title, status, and concept count from each file's front-matter.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "directory": {
+                    "type": "string",
+                    "description": "Directory to search for .codelist files (default: current directory)"
+                }
+            }
+        }
+    }));
+    tools.push(json!({
+        "name": "codelist_read",
+        "description": "Read a .codelist file and return its metadata and concept lists (active, excluded, pending review).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file": { "type": "string", "description": "Path to the .codelist file" }
+            },
+            "required": ["file"]
+        }
+    }));
+    tools.push(json!({
+        "name": "codelist_new",
+        "description": "Scaffold a new .codelist file with YAML front-matter template.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file":        { "type": "string", "description": "Path for the new .codelist file" },
+                "title":       { "type": "string", "description": "Human-readable title" },
+                "description": { "type": "string", "description": "What this codelist is for" },
+                "terminology": { "type": "string", "description": "Terminology (default: SNOMED CT)" },
+                "author":      { "type": "string", "description": "Author name" }
+            },
+            "required": ["file", "title"]
+        }
+    }));
+    tools.push(json!({
+        "name": "codelist_add",
+        "description": "Add one or more SNOMED CT concepts to a .codelist file. Resolves preferred terms from the database. Deduplicates silently.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file":    { "type": "string", "description": "Path to the .codelist file" },
+                "sctids":  { "type": "array", "items": { "type": "string" }, "description": "SCTIDs to add" },
+                "comment": { "type": "string", "description": "Optional inline annotation for added lines" }
+            },
+            "required": ["file", "sctids"]
+        }
+    }));
+    tools.push(json!({
+        "name": "codelist_remove",
+        "description": "Move a concept from active to explicitly excluded in a .codelist file, preserving the audit trail.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file":    { "type": "string", "description": "Path to the .codelist file" },
+                "sctid":   { "type": "string", "description": "SCTID to exclude" },
+                "comment": { "type": "string", "description": "Reason for exclusion (appended as inline comment)" }
+            },
+            "required": ["file", "sctid"]
+        }
+    }));
+    tools.push(json!({
+        "name": "codelist_validate",
+        "description": "Validate a .codelist file against the SNOMED CT database. Returns warnings and errors: inactive concepts, term drift, pending review items, missing required fields.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file": { "type": "string", "description": "Path to the .codelist file" }
+            },
+            "required": ["file"]
+        }
+    }));
+    tools.push(json!({
+        "name": "codelist_stats",
+        "description": "Return statistics for a .codelist file: concept count, hierarchy breakdown, leaf/intermediate ratio, excluded count, SNOMED release age.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file": { "type": "string", "description": "Path to the .codelist file" }
+            },
+            "required": ["file"]
+        }
+    }));
+    tools.push(json!({
+        "name": "codelist_export",
+        "description": "Export a .codelist file as a string in the requested format.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file":   { "type": "string", "description": "Path to the .codelist file" },
+                "format": { "type": "string", "enum": ["csv", "opencodelists-csv", "markdown"], "description": "Export format (default: csv)" }
+            },
+            "required": ["file"]
+        }
+    }));
+
     json!({ "tools": tools })
 }
 
@@ -474,6 +580,14 @@ fn handle_tools_call(conn: &Connection, params: &Option<Value>, semantic_cfg: Op
         "snomed_hierarchy" => tool_hierarchy(conn, args)?,
         "snomed_map" => tool_map(conn, args)?,
         "snomed_semantic_search" => tool_semantic_search(args, semantic_cfg)?,
+        "codelist_list"     => tool_codelist_list(args)?,
+        "codelist_read"     => tool_codelist_read(args)?,
+        "codelist_new"      => tool_codelist_new(args)?,
+        "codelist_add"      => tool_codelist_add(conn, args)?,
+        "codelist_remove"   => tool_codelist_remove(args)?,
+        "codelist_validate" => tool_codelist_validate(conn, args)?,
+        "codelist_stats"    => tool_codelist_stats(conn, args)?,
+        "codelist_export"   => tool_codelist_export(args)?,
         _ => anyhow::bail!("Unknown tool: {}", name),
     };
 
@@ -746,6 +860,339 @@ fn tool_map(conn: &Connection, args: &Value) -> Result<String> {
             "Unknown terminology '{}'. Use 'snomed', 'ctv3', or 'read2'.",
             other
         ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Codelist tool implementations
+// ---------------------------------------------------------------------------
+
+fn cl_path(args: &Value) -> Result<std::path::PathBuf> {
+    let s = args["file"].as_str().context("requires file")?;
+    Ok(std::path::PathBuf::from(s))
+}
+
+fn tool_codelist_list(args: &Value) -> Result<String> {
+    let dir = args["directory"].as_str().unwrap_or(".");
+    let base = std::path::Path::new(dir);
+    anyhow::ensure!(base.is_dir(), "directory not found: {}", dir);
+
+    let mut entries: Vec<Value> = Vec::new();
+    for entry in walkdir::WalkDir::new(base)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("codelist"))
+    {
+        let path = entry.path();
+        let item = match read_codelist(path) {
+            Ok(cl) => {
+                let active = cl.body.iter().filter(|l| matches!(l, ConceptLine::Active { .. })).count();
+                json!({
+                    "file": path.to_string_lossy(),
+                    "id": cl.front_matter.id,
+                    "title": cl.front_matter.title,
+                    "status": cl.front_matter.status,
+                    "version": cl.front_matter.version,
+                    "active_concepts": active,
+                    "updated": cl.front_matter.updated,
+                })
+            }
+            Err(e) => json!({ "file": path.to_string_lossy(), "error": e.to_string() }),
+        };
+        entries.push(item);
+    }
+
+    if entries.is_empty() {
+        return Ok(format!("No .codelist files found in {}", dir));
+    }
+    Ok(serde_json::to_string_pretty(&entries)?)
+}
+
+fn tool_codelist_read(args: &Value) -> Result<String> {
+    let path = cl_path(args)?;
+    let cl = read_codelist(&path)?;
+    let fm = &cl.front_matter;
+
+    let active: Vec<Value> = cl.body.iter().filter_map(|l| {
+        if let ConceptLine::Active { id, term, comment } = l {
+            Some(json!({ "id": id, "term": term, "comment": comment }))
+        } else { None }
+    }).collect();
+
+    let excluded: Vec<Value> = cl.body.iter().filter_map(|l| {
+        if let ConceptLine::Excluded { id, term, comment } = l {
+            Some(json!({ "id": id, "term": term, "comment": comment }))
+        } else { None }
+    }).collect();
+
+    let pending: Vec<Value> = cl.body.iter().filter_map(|l| {
+        if let ConceptLine::PendingReview { id, term } = l {
+            Some(json!({ "id": id, "term": term }))
+        } else { None }
+    }).collect();
+
+    Ok(serde_json::to_string_pretty(&json!({
+        "file": path.to_string_lossy(),
+        "id": fm.id,
+        "title": fm.title,
+        "description": fm.description,
+        "terminology": fm.terminology,
+        "status": fm.status,
+        "version": fm.version,
+        "updated": fm.updated,
+        "snomed_release": fm.snomed_release,
+        "active_concepts": active,
+        "excluded_concepts": excluded,
+        "pending_review": pending,
+    }))?)
+}
+
+fn tool_codelist_new(args: &Value) -> Result<String> {
+    let path = cl_path(args)?;
+    if path.exists() {
+        anyhow::bail!("{} already exists", path.display());
+    }
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+    }
+
+    let title = args["title"].as_str().context("codelist_new requires title")?.to_string();
+    let terminology = args["terminology"].as_str().unwrap_or("SNOMED CT").to_string();
+    let id = path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("untitled")
+        .to_lowercase()
+        .replace(' ', "-");
+    let today = today();
+
+    let fm = FrontMatter {
+        id,
+        description: args["description"].as_str()
+            .map(String::from)
+            .unwrap_or_else(|| format!("{title} codes")),
+        title,
+        terminology: terminology.clone(),
+        created: today.clone(),
+        updated: today,
+        version: 1,
+        status: "draft".to_string(),
+        licence: "CC-BY-4.0".to_string(),
+        copyright: "Copyright holder. SNOMED CT content © IHTSDO.".to_string(),
+        appropriate_use: "Describe appropriate use here.".to_string(),
+        misuse: "Describe misuse here.".to_string(),
+        snomed_release: None,
+        authors: args["author"].as_str().map(|name| vec![crate::commands::codelist::Author {
+            name: name.to_string(),
+            orcid: None, affiliation: None,
+            role: Some("author".to_string()),
+        }]),
+        organisation: None, methodology: None, signoffs: None,
+        warnings: Some(vec![
+            Warning { code: "not-universal-definition".to_string(), severity: "info".to_string(),
+                      message: "Developed for a specific purpose — may not suit all uses.".to_string() },
+            Warning { code: "draft-not-reviewed".to_string(), severity: "info".to_string(),
+                      message: "Not yet reviewed. Check status before use.".to_string() },
+        ]),
+        population: None, care_setting: None, tags: None,
+        opencodelists_id: None, opencodelists_url: None,
+    };
+
+    let cl = CodelistFile {
+        front_matter: fm,
+        body: vec![ConceptLine::Blank, ConceptLine::Comment("# concepts".to_string()), ConceptLine::Blank],
+    };
+    write_codelist(&cl, &path)?;
+    Ok(format!("Created {}", path.display()))
+}
+
+fn tool_codelist_add(conn: &Connection, args: &Value) -> Result<String> {
+    let path = cl_path(args)?;
+    let sctids: Vec<String> = args["sctids"]
+        .as_array()
+        .context("codelist_add requires sctids array")?
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect();
+    if sctids.is_empty() {
+        anyhow::bail!("sctids array is empty");
+    }
+    let comment = args["comment"].as_str().map(String::from);
+
+    let mut cl = read_codelist(&path)?;
+    let existing: std::collections::HashSet<String> = cl.body.iter()
+        .filter_map(|l| if matches!(l, ConceptLine::Active { .. }) { l.sctid().map(String::from) } else { None })
+        .collect();
+
+    let mut added = 0usize;
+    let mut not_found: Vec<String> = Vec::new();
+    for id in &sctids {
+        if existing.contains(id) { continue; }
+        match lookup_preferred_term(conn, id) {
+            Ok(term) => {
+                cl.body.push(ConceptLine::Active { id: id.clone(), term, comment: comment.clone() });
+                added += 1;
+            }
+            Err(_) => not_found.push(id.clone()),
+        }
+    }
+
+    if added > 0 {
+        cl.front_matter.updated = today();
+        cl.front_matter.version += 1;
+        write_codelist(&cl, &path)?;
+    }
+
+    let mut result = json!({ "added": added, "file": path.to_string_lossy() });
+    if !not_found.is_empty() {
+        result["not_found"] = json!(not_found);
+    }
+    Ok(serde_json::to_string_pretty(&result)?)
+}
+
+fn tool_codelist_remove(args: &Value) -> Result<String> {
+    let path = cl_path(args)?;
+    let sctid = args["sctid"].as_str().context("codelist_remove requires sctid")?;
+    let comment = args["comment"].as_str().map(String::from);
+
+    let mut cl = read_codelist(&path)?;
+    let mut found = false;
+    for line in &mut cl.body {
+        if let ConceptLine::Active { id, term, .. } = line {
+            if id == sctid {
+                *line = ConceptLine::Excluded { id: id.clone(), term: term.clone(), comment };
+                found = true;
+                break;
+            }
+        }
+    }
+    if !found {
+        anyhow::bail!("SCTID {} not found as an active concept in {}", sctid, path.display());
+    }
+    cl.front_matter.updated = today();
+    cl.front_matter.version += 1;
+    write_codelist(&cl, &path)?;
+    Ok(format!("Moved {} to excluded in {}", sctid, path.display()))
+}
+
+fn tool_codelist_validate(conn: &Connection, args: &Value) -> Result<String> {
+    let path = cl_path(args)?;
+    let cl = read_codelist(&path)?;
+    let fm = &cl.front_matter;
+
+    let mut warnings: Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+
+    for (field, val) in [("appropriate_use", fm.appropriate_use.as_str()), ("misuse", fm.misuse.as_str())] {
+        if val.trim().is_empty() || val.starts_with("Describe") {
+            if fm.status == "published" {
+                errors.push(format!("`{field}` must be filled in for published codelists"));
+            } else {
+                warnings.push(format!("`{field}` is a placeholder"));
+            }
+        }
+    }
+    if fm.status == "published" && fm.signoffs.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
+        errors.push("published codelist requires at least one signoff".to_string());
+    }
+
+    let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for line in &cl.body {
+        if let Some(id) = line.sctid() {
+            *seen.entry(id).or_insert(0) += 1;
+        }
+    }
+    for (id, count) in &seen {
+        if *count > 1 {
+            errors.push(format!("SCTID {id} appears {count} times"));
+        }
+    }
+
+    for line in &cl.body {
+        match line {
+            ConceptLine::Active { id, term, .. } => {
+                match lookup_concept_row(conn, id)? {
+                    None => errors.push(format!("{id}: not found in database")),
+                    Some((db_term, false)) => errors.push(format!("{id}: inactive in database ({db_term})")),
+                    Some((db_term, true)) if db_term != *term =>
+                        warnings.push(format!("{id}: stored term {term:?} differs from database {db_term:?}")),
+                    _ => {}
+                }
+            }
+            ConceptLine::PendingReview { id, term } =>
+                warnings.push(format!("{id} ({term}): pending review")),
+            _ => {}
+        }
+    }
+
+    let active_count = cl.body.iter().filter(|l| matches!(l, ConceptLine::Active { .. })).count();
+    Ok(serde_json::to_string_pretty(&json!({
+        "file": path.to_string_lossy(),
+        "active_concepts": active_count,
+        "warnings": warnings,
+        "errors": errors,
+        "valid": errors.is_empty(),
+    }))?)
+}
+
+fn tool_codelist_stats(conn: &Connection, args: &Value) -> Result<String> {
+    let path = cl_path(args)?;
+    let cl = read_codelist(&path)?;
+    let fm = &cl.front_matter;
+
+    let active: Vec<&str> = cl.body.iter()
+        .filter_map(|l| if matches!(l, ConceptLine::Active { .. }) { l.sctid() } else { None })
+        .collect();
+    let excluded_count = cl.body.iter().filter(|l| matches!(l, ConceptLine::Excluded { .. })).count();
+    let pending_count  = cl.body.iter().filter(|l| matches!(l, ConceptLine::PendingReview { .. })).count();
+
+    let mut by_hierarchy: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut leaf_count = 0usize;
+    let mut intermediate_count = 0usize;
+    for id in &active {
+        if let Some((hierarchy, children_count)) = lookup_hierarchy_and_children(conn, id)? {
+            *by_hierarchy.entry(hierarchy).or_insert(0) += 1;
+            if children_count == 0 { leaf_count += 1; } else { intermediate_count += 1; }
+        }
+    }
+
+    let mut hierarchy_list: Vec<Value> = by_hierarchy.into_iter()
+        .map(|(h, n)| json!({"hierarchy": h, "count": n}))
+        .collect();
+    hierarchy_list.sort_by(|a, b| b["count"].as_u64().cmp(&a["count"].as_u64()));
+
+    Ok(serde_json::to_string_pretty(&json!({
+        "file": path.to_string_lossy(),
+        "title": fm.title,
+        "terminology": fm.terminology,
+        "status": fm.status,
+        "version": fm.version,
+        "updated": fm.updated,
+        "snomed_release": fm.snomed_release,
+        "active_concepts": active.len(),
+        "excluded_concepts": excluded_count,
+        "pending_review": pending_count,
+        "by_hierarchy": hierarchy_list,
+        "leaf_nodes": leaf_count,
+        "intermediate_nodes": intermediate_count,
+    }))?)
+}
+
+fn tool_codelist_export(args: &Value) -> Result<String> {
+    let path = cl_path(args)?;
+    let cl = read_codelist(&path)?;
+    let active: Vec<(&str, &str)> = cl.body.iter().filter_map(|l| {
+        if let ConceptLine::Active { id, term, .. } = l { Some((id.as_str(), term.as_str())) } else { None }
+    }).collect();
+
+    match args["format"].as_str().unwrap_or("csv") {
+        "csv"               => Ok(export_csv(&active)),
+        "opencodelists-csv" => Ok(export_opencodelists_csv(&active)),
+        "markdown"          => Ok(export_markdown(&cl.front_matter, &active)),
+        other => anyhow::bail!("unsupported format: {other}. Use csv, opencodelists-csv, or markdown"),
     }
 }
 
