@@ -14,7 +14,7 @@ done
 
 if [[ ${#features[@]} -gt 0 ]]; then
   feature_list=$(IFS=,; echo "${features[*]}")
-  exec cargo install --path sct --features "$feature_list"
+  exec cargo install --path . --features "$feature_list"
 else
-  exec cargo install --path sct
+  exec cargo install --path .
 fi
