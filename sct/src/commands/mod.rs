@@ -4,6 +4,7 @@ pub mod diff;
 pub mod embed;
 pub mod info;
 pub mod lexical;
+pub mod lookup;
 pub mod markdown;
 pub mod mcp;
 pub mod ndjson;
