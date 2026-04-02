@@ -49,7 +49,9 @@ pub fn run(args: Args) -> Result<()> {
     let mapped = lookup_ctv3(&conn, code)?;
     if mapped.is_empty() {
         println!("No SNOMED CT mapping found for CTV3 code '{code}'.");
-        println!("Mappings are only present when the database was built from a UK Monolith RF2 release.");
+        println!(
+            "Mappings are only present when the database was built from a UK Monolith RF2 release."
+        );
         return Ok(());
     }
 
@@ -131,12 +133,7 @@ fn lookup_ctv3(conn: &Connection, code: &str) -> Result<Vec<(String, String, Str
 
     let rows: Vec<(String, String, String, String)> = stmt
         .query_map(params![code], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-            ))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         })?
         .filter_map(|r| r.ok())
         .collect();
