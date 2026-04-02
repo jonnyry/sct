@@ -159,13 +159,14 @@ sqlite3 snomed.db \
   "SELECT id, preferred_term FROM concepts WHERE hierarchy = 'Procedure' LIMIT 10"
 
 # Recursive subsumption via IS-A table
-sqlite3 snomed.db "
-  WITH RECURSIVE descendants(id) AS (
-    SELECT child_id FROM concept_isa WHERE parent_id = '22298006'
-    UNION ALL
+```sql
+sqlite3 snomed.db \
+  "WITH RECURSIVE descendants(id) AS (
+    SELECT DISTINCT child_id FROM concept_isa WHERE parent_id = '22298006'
+    UNION
     SELECT ci.child_id FROM concept_isa ci JOIN descendants d ON ci.parent_id = d.id
   )
-  SELECT c.preferred_term FROM concepts c JOIN descendants d ON c.id = d.id LIMIT 20"
+  SELECT DISTINCT c.preferred_term FROM concepts c JOIN descendants d ON c.id = d.id LIMIT 20"
 ```
 
 **Or use `sct lexical` directly:**
