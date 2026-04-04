@@ -1,3 +1,5 @@
+# sct info
+
 Inspect any file produced by `sct` and print a summary — without needing to open a database or write a query.
 
 Accepts `.ndjson`, `.db`, and `.arrow` files.

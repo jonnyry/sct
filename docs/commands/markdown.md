@@ -1,3 +1,5 @@
+# sct markdown
+
 Export a SNOMED CT NDJSON artefact to per-concept Markdown files, organised by hierarchy.
 
 Designed for RAG (retrieval-augmented generation) indexing, filesystem MCP tools, and direct LLM file reading.

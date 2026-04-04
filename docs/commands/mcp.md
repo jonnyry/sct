@@ -1,3 +1,5 @@
+# sct mcp
+
 Start a local MCP (Model Context Protocol) server backed by the SNOMED CT SQLite database. Exposes SNOMED CT as a set of tools for Claude Desktop, Claude Code, Cursor, and any other MCP-compatible AI client.
 
 Single binary, no runtime dependencies, starts in under 5 ms. The SNOMED CT database is always read-only; codelist tools can read and write `.codelist` files.

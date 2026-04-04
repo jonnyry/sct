@@ -1,3 +1,5 @@
+# sct sqlite
+
 Load a SNOMED CT NDJSON artefact into a SQLite database with full-text search (FTS5).
 
 **When to use:** you want keyword/phrase search, SQL queries, or to run the MCP server or UIs. For meaning-based search, see [`sct embed`](embed.md) + [`sct semantic`](semantic.md).
@@ -193,3 +195,120 @@ sqlite3 snomed.db "
 ---
 
 *Next: search with [`sct lexical`](lexical.md) or connect an AI assistant with [`sct mcp`](mcp.md).*
+
+## SQL query examples
+
+These queries run directly against the SQLite database produced by `sct sqlite`.
+They demonstrate the kind of terminology reasoning that ECL (Expression Constraint Language) servers are typically benchmarked on.
+
+> **Note on `UNION` vs `UNION ALL` in recursive CTEs**
+>
+> SNOMED CT is a *polyhierarchy* — a concept can have more than one parent.
+> Recursive CTEs with `UNION ALL` will visit the same ancestor or descendant
+> multiple times (once per path), causing exponential row explosion on large
+> hierarchies. Always use `UNION` in recursive CTEs so that visited nodes are
+> deduplicated and the query terminates promptly.
+
+---
+
+## 1. Descendant count (subsumption benchmark)
+
+**In plain English:** "How many concepts in SNOMED CT are a type of *Diabetes mellitus*?"
+
+This is the most fundamental ECL operation — `<<73211009|Diabetes mellitus|` — the
+double-chevron meaning *self plus all descendants*. The recursive CTE walks the
+`concept_isa` table downward from the seed concept, following every IS-A
+relationship until no new children are found.
+
+```bash
+sqlite3 /home/marcus/code/sct/snomed.db "
+WITH RECURSIVE descendants AS (
+  SELECT '73211009' AS id
+  UNION
+  SELECT ci.child_id FROM concept_isa ci
+  JOIN descendants d ON ci.parent_id = d.id
+)
+SELECT COUNT(*) AS total_descendants FROM descendants;
+"
+```
+
+---
+
+## 2. Lowest common ancestor
+
+**In plain English:** "What is the most specific concept that both *Myocardial infarction*
+and *Heart failure* are a type of?"
+
+Finding the Lowest Common Ancestor (LCA) of two concepts is a classic terminology
+server operation. It answers questions like "how closely related are these two
+diagnoses?" and underpins similarity scoring, query optimisation, and subsumption
+testing. Two separate ancestor chains are walked upward to the root, then
+intersected; the result is ordered by depth (using the pre-computed
+`hierarchy_path` length stored on each concept) so the most specific shared
+ancestor appears first.
+
+```bash
+sqlite3 /home/marcus/code/sct/snomed.db "
+WITH RECURSIVE
+  ancestors_mi AS (
+    SELECT parent_id FROM concept_isa WHERE child_id = '22298006'
+    UNION
+    SELECT ci.parent_id FROM concept_isa ci
+    JOIN ancestors_mi a ON ci.child_id = a.parent_id
+  ),
+  ancestors_hf AS (
+    SELECT parent_id FROM concept_isa WHERE child_id = '84114007'
+    UNION
+    SELECT ci.parent_id FROM concept_isa ci
+    JOIN ancestors_hf a ON ci.child_id = a.parent_id
+  )
+SELECT c.id, c.preferred_term,
+       json_array_length(c.hierarchy_path) AS depth
+FROM ancestors_mi a
+JOIN ancestors_hf b ON a.parent_id = b.parent_id
+JOIN concepts c ON c.id = a.parent_id
+ORDER BY depth DESC
+LIMIT 5;
+"
+```
+
+---
+
+## 3. Attribute refinement with subsumption
+
+**In plain English:** "Find clinical findings whose finding site is somewhere in the
+cardiovascular system (but not necessarily the heart specifically)."
+
+This is ECL with an attribute refinement:
+
+```
+<<404684003|Clinical finding| :
+  363698007|Finding site| = <<113257007|Structure of cardiovascular system|
+```
+
+The recursive CTE expands the value side of the attribute constraint (`<<113257007`)
+into the full set of cardiovascular structures. The `hierarchy` column filter
+replaces what would otherwise be an equally expensive recursive expansion of the
+entire Clinical finding hierarchy. The `EXISTS` clause walks the JSON array stored
+in `attributes` and checks each value's SCTID against that set.
+
+```bash
+sqlite3 /home/marcus/code/sct/snomed.db "
+WITH RECURSIVE cardio_structure AS (
+  SELECT '113257007' AS id
+  UNION
+  SELECT ci.child_id FROM concept_isa ci
+  JOIN cardio_structure cs ON ci.parent_id = cs.id
+)
+SELECT c.id, c.preferred_term
+FROM concepts c
+WHERE c.active = 1
+  AND c.hierarchy = 'Clinical finding'
+  AND EXISTS (
+    SELECT 1
+    FROM json_each(json_extract(c.attributes, '$.finding_site')) fs
+    WHERE json_extract(fs.value, '$.id') IN (SELECT id FROM cardio_structure)
+  )
+LIMIT 50;
+"
+```

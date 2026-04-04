@@ -1,3 +1,5 @@
+# sct lexical
+
 Keyword search over the SNOMED CT SQLite database using FTS5 full-text search.
 
 **When to use:** you know what words to search for. `sct lexical "heart attack"` returns concepts containing those words. For meaning-based search (when exact words don't match), use [`sct semantic`](semantic.md).

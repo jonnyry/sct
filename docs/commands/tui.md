@@ -1,3 +1,5 @@
+# sct tui
+
 Keyboard-driven terminal UI for exploring SNOMED CT interactively — no browser required.
 
 Three panels: **Hierarchy** (top-left), **Search / Results** (bottom-left), **Concept detail** (right). Navigate entirely with the keyboard.

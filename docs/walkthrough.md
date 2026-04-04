@@ -1,14 +1,17 @@
-# `sct` Walkthrough — Feature Tour
+# `sct` Walkthrough
 
-A hands-on tour of the `sct` SNOMED CT local-first toolchain. Each section maps to a
-distinct feature and is designed as a self-contained demo scene.
+A hands-on tour of the `sct` SNOMED-CT local-first toolchain.
 
 ---
 
 ## 0 — What is `sct`?
 
 `sct` is a single Rust binary that transforms a SNOMED CT RF2 release into a set of
-queryable, offline-first artefacts. No server required. No licence server. No Java.
+queryable, offline-first artefacts. No server required. No bloody Java.
+
+It was initially created as an experiment in file-based data handling, offline-first tooling, and learning about the structure of SNOMED, but it turns out it's pretty fast and useful too, so I'm gradually adding features with the aim of creating something genuinely useful for practitioners, informaticians, and researchers working with SNOMED CT.
+
+Data map:
 
 ```
 SNOMED RF2 release
@@ -16,7 +19,7 @@ SNOMED RF2 release
         ▼
    sct ndjson          ← build once per release (~30 s for 831k concepts)
         │
-        ├──▶ sct sqlite   → snomed.db                SQL + full-text search
+        ├──▶ sct sqlite   → snomed.db                 SQL + full-text search
         ├──▶ sct parquet  → snomed.parquet            analytics with DuckDB / pandas
         ├──▶ sct markdown → snomed-concepts/          one file per concept (RAG)
         └──▶ sct embed    → snomed-embeddings.arrow   semantic vector search
@@ -24,40 +27,37 @@ SNOMED RF2 release
                             sct mcp                   AI tool use via Claude
 ```
 
-**Key guarantees:**
-- Offline at query time (Ollama only needed for embeddings)
-- Deterministic — same RF2 + locale always produces identical output
-- Single portable file for each artefact
+### Key `sct` design principles
+
+- **Offline** - everything happens on your local machine, no network calls or external servers required
+- **Deterministic** - same RF2 + locale always produces identical output files, which can be version-controlled, diffed, and audited.
+- **File based** - each artefact is a single portable file (or directory of files) that can be copied, versioned, and used with standard tools. No custom server or API needed at query time.
+- **No special tools required** - query the SQLite database with `sqlite3`, do analytics with DuckDB or pandas, search with `jq` or `ripgrep`, read concept details in VSCode or a Markdown viewer, or use the MCP server to integrate with LLMs like Claude.
 
 ---
 
 ## 1 — Installation
 
 ```bash
-git clone repo
+git clone https://github.com/pacharanero/sct.git
 cd sct
 cargo install --path . --features "tui gui"
 ```
 
-Or download a pre-built binary from GitHub Releases.
+We're working on packaging binaries for the usual distribution channels (Homebrew, PyPI, etc.) but for now you need Rust and Cargo to build from source. Feedback in Issues will help us decide which platforms and formats to prioritise for pre-built binaries.
 
-Verify:
+Verify installation:
 
 ```bash
 sct --version
-# sct 0.3.4
+# sct 0.3.7
 ```
 
-Generate shell completions:
-
-```bash
-sct completions bash > ~/.local/share/bash-completion/completions/sct
-# also: zsh, fish, powershell, elvish
-```
+> Optionally, you can generate [shell completions](commands/completions.md) for your shell at this point.
 
 ---
 
-## 2 — Getting SNOMED RF2 Data
+## 2 — Get SNOMED RF2 Data
 
 SNOMED CT is distributed as RF2 (Release Format 2) — a set of TSV files.
 
@@ -74,92 +74,178 @@ SNOMED CT is distributed as RF2 (Release Format 2) — a set of TSV files.
 
 ---
 
-## 3 — Layer 1: Build the Canonical Artefact
+## 3 — Build the NDJSON Artefact
 
 The first step is always `sct ndjson`. This joins the RF2 tables and produces the
 canonical intermediate artefact that everything else is built from.
 
-```bash
-# Single release (International)
-sct ndjson --rf2 SnomedCT_InternationalRF2_PRODUCTION_*.zip \
-           --output snomed-20250301.ndjson
+**Docs**: [`sct ndjson`](commands/ndjson.md)
 
-# UK edition: layer International + UK Clinical + dm+d
-sct ndjson --rf2 SnomedCT_InternationalRF2_PRODUCTION_*.zip \
-           --rf2 SnomedCT_UKClinicalRF2_PRODUCTION_*.zip \
-           --rf2 SnomedCT_UKDrugRF2_PRODUCTION_*.zip \
-           --locale en-GB \
-           --output snomed-uk-20250301.ndjson
+```bash
+sct ndjson --rf2 .downloads/uk_sct2mo_41.6.0_20260311000001Z.zip \
+           --output snomed.ndjson
+
+# ~30 s for 831k concepts → snomed.ndjson (1.1 GB)
 ```
 
-**Timing:**
-| Edition | Concepts | Time |
-|---|---|---|
-| UK Clinical only | 34k | ~0.8 s |
-| UK Monolith (all) | 831k | ~30 s |
+If you pass it a `.zip` it will automatically extract and parse the RF2 files within. If you pass it a directory containing extracted RF2 files, it will parse them directly.
 
-**What you get:** One `.ndjson` file. One JSON object per line. Each concept looks like:
+The output is a single `.ndjson` file — one JSON object per line, each representing a SNOMED concept with all its details (ID, preferred term, synonyms, hierarchy, relationships, attributes, etc.)
+
+Testing on my laptop, this takes about 30 seconds for the UK Monolith release with 831k active concepts. The resulting NDJSON file is about 1.1 GB. Incredibly, because NDJSON is easier to handle in memory than JSON, **you can load the whole 1.1 GB file into VSCode** (takes less than 5 seconds) and play around with it there, great for getting to understand what data is available and how it's structured.
+
+You can now query the NDJSON file with `jq` or any tool that can handle line-delimited JSON. For example, to get the full details of Myocardial infarction (disorder)":
+
+```bash
+jq 'select(.id == "22298006")' snomed.ndjson
+```
+
+Which should return something similar to the below:
 
 ```json
 {
   "id": "22298006",
   "fsn": "Myocardial infarction (disorder)",
   "preferred_term": "Myocardial infarction",
-  "synonyms": ["Cardiac infarction", "Infarction of heart", "MI - Myocardial infarction"],
+  "synonyms": [
+    "Infarction of heart",
+    "Cardiac infarction",
+    "Heart attack",
+    "Myocardial infarct",
+    "MI - myocardial infarction"
+  ],
   "hierarchy": "Clinical finding",
-  "hierarchy_path": ["SNOMED CT concept", "Clinical finding", "Disorder of cardiovascular system",
-                     "Ischemic heart disease", "Myocardial infarction"],
-  "parents": [{"id": "414795007", "fsn": "Ischemic heart disease (disorder)"}],
-  "children_count": 47,
+  "hierarchy_path": [
+    "SNOMED CT Concept",
+    "Clinical finding",
+    "Finding of trunk structure",
+    "Finding of upper trunk",
+    "Finding of thoracic region",
+    "Disorder of thorax",
+    "Disorder of mediastinum",
+    "Heart disease",
+    "Structural disorder of heart",
+    "Myocardial lesion",
+    "Myocardial necrosis",
+    "Myocardial infarction"
+  ],
+  "parents": [
+    {
+      "id": "251061000",
+      "fsn": "Myocardial necrosis (disorder)"
+    },
+    {
+      "id": "414545008",
+      "fsn": "Ischemic heart disease (disorder)"
+    }
+  ],
+  "children_count": 14,
   "active": true,
   "module": "900000000000207008",
   "effective_time": "20020131",
   "attributes": {
-    "finding_site": [{"id": "302509004", "fsn": "Entire heart (body structure)"}],
-    "associated_morphology": [{"id": "55641003", "fsn": "Infarct (morphologic abnormality)"}]
+    "associated_morphology": [
+      {
+        "id": "55641003",
+        "fsn": "Infarct (morphologic abnormality)"
+      }
+    ],
+    "finding_site": [
+      {
+        "id": "74281007",
+        "fsn": "Myocardium structure (body structure)"
+      }
+    ]
   },
-  "ctv3_codes": ["X200E"],
+  "ctv3_codes": [
+    "X200E"
+  ],
   "read2_codes": [],
   "schema_version": 2
 }
 ```
 
-The NDJSON artefact is the stable interface. Version-controlled. Copyable. Diffable.
+The NDJSON artefact is the stable interface. Version-controlled. Copyable. Diffable. (Remember though, it is still copyright SNOMED International and subject to the SNOMED CT licence terms, so **don't share it publicly**.)
+
+Here are some examples of mini-queries you can run directly on the NDJSON file with `jq` or `grep`:
+
+Get all Procedures:
 
 ```bash
-# Inspect with standard tools — no custom binary needed
 grep '"hierarchy":"Procedure"' snomed.ndjson | wc -l
-jq '.preferred_term' snomed.ndjson | head -5
 ```
+
+Get all concepts with "heart" in the preferred term:
+
+```bash
+jq 'select(.preferred_term | test("heart"; "i")) | {id, preferred_term}' snomed.ndjson
+```
+
+Get a concept via CTV3 code (UK edition only):
+
+```bash
+jq 'select(.ctv3_codes | index("X200E"))' snomed.ndjson
+```
+
+### Programmatic access
+
+You can look inside the NDJSON file with any language that can read it eg. Python:
+
+Prints all concepts that have CTV3 codes, with their preferred term and list of CTV3 codes:
+
+```python
+import json
+with open('snomed.ndjson') as f:
+    for line in f:
+        rec = json.loads(line)
+        if rec['ctv3_codes']:
+            print(f"{rec['id']}\t{rec['preferred_term']}\t{rec['ctv3_codes']}")
+```
+
+NDJSON is great for quick exploration and ad-hoc queries, but for more complex querying and analytics, the next step is to load it into SQLite or export to Parquet.
 
 ---
 
-## 4 — Layer 2a: SQLite + Full-Text Search
+## 4 — SQLite + Full-Text Search
 
 Load the NDJSON artefact into a SQLite database with FTS5 full-text search.
 
 ```bash
-sct sqlite --input snomed-uk-20250301.ndjson --output snomed.db
-# ~11 s for 831k concepts → 1.3 GB SQLite file
+sct sqlite --input snomed.ndjson --output snomed.db
 ```
 
-**Query with standard `sqlite3`:**
+**Docs**: [`sct sqlite`](commands/sqlite.md)
+
+On my machine this takes about 45 seconds for the UK Monolith release with 831k active concepts. The resulting `snomed.db` file is about 2 GB.
+
+**Now you can query SNOMED CT with standard `sqlite3`:** The following examples should all work out of the box on the resulting database, running in the terminal.
+
+LLMs are excellent at generating SQL queries, so you can also use any LLM to generate custom SQL queries for you on demand. `sct` includes an MCP server that exposes the database as 'tools' to LLMs in a standard way for interactive querying — see below.
+
+Free-text search (FTS5)
 
 ```bash
-# Free-text search (FTS5)
 sqlite3 snomed.db \
   "SELECT id, preferred_term FROM concepts_fts WHERE concepts_fts MATCH 'heart attack' LIMIT 5"
+```
 
-# Direct concept lookup
+Direct concept lookup
+
+```bash
 sqlite3 snomed.db \
   "SELECT preferred_term, json(attributes) FROM concepts WHERE id = '22298006'"
+```
 
-# Browse by hierarchy
+Browse by hierarchy
+
+```bash
 sqlite3 snomed.db \
   "SELECT id, preferred_term FROM concepts WHERE hierarchy = 'Procedure' LIMIT 10"
+```
 
-# Recursive subsumption via IS-A table
-```sql
+Recursive subsumption via IS-A table
+
+```bash
 sqlite3 snomed.db \
   "WITH RECURSIVE descendants(id) AS (
     SELECT DISTINCT child_id FROM concept_isa WHERE parent_id = '22298006'
@@ -169,7 +255,7 @@ sqlite3 snomed.db \
   SELECT DISTINCT c.preferred_term FROM concepts c JOIN descendants d ON c.id = d.id LIMIT 20"
 ```
 
-**Or use `sct lexical` directly:**
+For simple lexical searches, I added a `sct lexical` subcommand that generates SQL queries for you, so you don't have to write the raw SQL yourself. It supports free-text search, hierarchy filtering, and prefix search:
 
 ```bash
 sct lexical --db snomed.db "heart attack" --limit 10
@@ -177,8 +263,9 @@ sct lexical --db snomed.db "diabetes" --hierarchy "Clinical finding"
 sct lexical --db snomed.db "amox*"      # prefix search
 ```
 
-The `.db` file is a single portable file. Copy it, version it with git-lfs, share it via
-scp. No installation required at query time — `sqlite3` is sufficient.
+**Docs**: [`sct lexical`](commands/lexical.md)
+
+For more advanced and interesting SQL queries, see the [`sct sqlite` documentation](sqlite.md)
 
 ---
 
@@ -190,9 +277,11 @@ They are parsed automatically from the `der2_sRefset_SimpleMap` reference set (r
 
 CTV3 is the legacy NHS terminology used in GP and secondary care systems before SNOMED CT. Having
 SNOMED → CTV3 mappings is useful for:
+
 - **Migrating data** from legacy systems that recorded CTV3 codes
 - **Interoperability** with older clinical records
 - **Reporting** to systems that still consume CTV3
+- **Learning and exploration** — see how concepts were mapped from CTV3 to SNOMED CT
 
 Over 524,000 concepts have CTV3 mappings in the UK Monolith release. Read v2 codes are not distributed
 as a separate refset in current UK releases.
@@ -200,63 +289,49 @@ as a separate refset in current UK releases.
 **Data structure:**
 
 The SQLite database includes:
+
 - `concepts.ctv3_codes` — JSON array of CTV3 codes for each concept
 - `concept_maps` table — reverse index for fast CTV3 code → SNOMED lookup
 
 **Example queries:**
 
-```bash
-# Forward: SNOMED → CTV3 code
-sqlite3 snomed.db "SELECT id, preferred_term, ctv3_codes FROM concepts WHERE id = '22298006'"
-# 22298006|Myocardial infarction|["X200E"]
+Forward: SNOMED → CTV3 code
 
-# Reverse: CTV3 code → SNOMED concept
+```bash
+sqlite3 snomed.db "SELECT id, preferred_term, ctv3_codes FROM concepts WHERE id = '22298006'"
+
+# 22298006|Myocardial infarction|["X200E"]
+```
+
+Reverse: CTV3 code → SNOMED concept
+
+```bash
 sqlite3 snomed.db "
   SELECT c.id, c.preferred_term, c.hierarchy
   FROM concepts c
   JOIN concept_maps m ON c.id = m.concept_id
   WHERE m.code = 'X200E' AND m.terminology = 'ctv3'"
+
 # 22298006|Myocardial infarction|Clinical finding
-
-# Bulk export: all concepts with CTV3 mappings (useful for migration)
-sqlite3 snomed.db "
-  SELECT id, preferred_term, ctv3_codes
-  FROM concepts
-  WHERE json_array_length(ctv3_codes) > 0" > ctv3-migration.csv
 ```
-
-**Programmatic access:**
-
-```bash
-# Extract from NDJSON with jq
-jq 'select(.ctv3_codes | length > 0) | {id, preferred_term, ctv3_codes}' snomed.ndjson
-
-# Python
-import json
-with open('snomed.ndjson') as f:
-    for line in f:
-        rec = json.loads(line)
-        if rec['ctv3_codes']:
-            print(f"{rec['id']}\t{rec['preferred_term']}\t{rec['ctv3_codes']}")
-```
-
-**Available without MCP:**
-
-CTV3 mappings are embedded in the canonical NDJSON artefact and flow through all downstream formats
-(SQLite, Parquet, Markdown). The `snomed_map` MCP tool provides the same lookups interactively for Claude.
 
 ---
 
-## 5 — Layer 2b: Parquet for Analytics
+## 5 — Parquet for Analytics
 
 Export to Apache Parquet for use with DuckDB, pandas, Polars, R, or Spark.
 
 ```bash
 sct parquet --input snomed-uk-20250301.ndjson --output snomed.parquet
+
 # ~5 s for 831k concepts → 824 MB
 ```
 
-**Query with DuckDB:**
+### Query with DuckDB
+
+Install DuckDB: <https://duckdb.org/install/>
+
+Then run queries directly on the Parquet file:
 
 ```bash
 duckdb -c "
@@ -267,75 +342,85 @@ duckdb -c "
   LIMIT 10"
 ```
 
-```bash
-duckdb -c "
-  SELECT id, preferred_term, hierarchy_path
-  FROM 'snomed.parquet'
-  WHERE list_contains(synonyms, 'BP')
-  LIMIT 5"
-```
-
-**Python / pandas:**
-
-```python
-import pandas as pd
-df = pd.read_parquet("snomed.parquet")
-procedures = df[df["hierarchy"] == "Procedure"]
-print(procedures["preferred_term"].head(10))
-```
+For more DuckDB examples, see the [`sct parquet` documentation](commands/parquet.md)
 
 ---
 
-## 6 — Layer 2c: Markdown Export for RAG
+## 6 — Markdown Export for RAG
 
 Export SNOMED CT as a directory of Markdown files — one per concept. Ideal for
 retrieval-augmented generation (RAG), Claude Code file reading, or filesystem MCP.
 
+!!! danger "CRASH WARNING"
+    **Use with caution:** the resulting directory is about 3.2 GB with 831k files (nested in subdirectories)which can be unwieldy to manage and version-control. If you try to open the directory in a text editor, it may crash. Consider using `.gitignore` or a separate branch if you want to keep it in the same repository.
+
 ```bash
-sct markdown --input snomed-uk-20250301.ndjson --output ./snomed-concepts/
-# ~14.5 s → 831k .md files, 3.2 GB total
+sct markdown --input snomed.ndjson --output ./snomed-concepts/
+
+# ~14.5 s for ~831k .md files, ~1 GB total
 ```
 
-**Example output** (`snomed-concepts/clinical-finding/22298006.md`):
+**Example output** (`cat snomed-concepts/clinical-finding/22298006.md`):
 
 ```markdown
-# Heart attack
+# Myocardial infarction
+
 **SCTID:** 22298006
 **FSN:** Myocardial infarction (disorder)
-**Hierarchy:** Clinical finding > Disorder of cardiovascular system > Ischemic heart disease
+**Hierarchy:** SNOMED CT Concept > Clinical finding > Finding of trunk structure > Finding of upper trunk > Finding of thoracic region > Disorder of thorax > Disorder of mediastinum > Heart disease > Structural disorder of heart > Myocardial lesion > Myocardial necrosis
 
 ## Synonyms
-- Cardiac infarction
+
 - Infarction of heart
-- MI - Myocardial infarction
+- Cardiac infarction
+- Heart attack
+- Myocardial infarct
+- MI - myocardial infarction
 
 ## Relationships
-- **Finding site:** Entire heart (body structure) [302509004]
-- **Associated morphology:** Infarct (morphologic abnormality) [55641003]
+
+- **Associated morphology:** Infarct [55641003]
+- **Finding site:** Myocardium structure [74281007]
+
+## Hierarchy
+
+- SNOMED CT Concept
+  - Clinical finding
+    - Finding of trunk structure
+      - Finding of upper trunk
+        - Finding of thoracic region
+          - Disorder of thorax
+            - Disorder of mediastinum
+              - Heart disease
+                - Structural disorder of heart
+                  - Myocardial lesion
+                    - Myocardial necrosis
+                      - **Myocardial infarction** *(this concept)*
 
 ## Parents
-- Ischemic heart disease [414795007]
+
+- Myocardial necrosis (disorder) `251061000`
+- Ischemic heart disease (disorder) `414545008`
 ```
 
 **Hierarchy-mode** (one file per top-level hierarchy, ~19 files):
 
 ```bash
 sct markdown --input snomed.ndjson --output ./snomed-hierarchies/ --mode hierarchy
+
+# ~ 3 s for ~ 20 .md files, total ~ 380 MB
 ```
 
-Files can be read directly by Claude Code, indexed by your own RAG pipeline, or
-searched with `ripgrep`:
-
-```bash
-rg "finding_site.*heart" snomed-concepts/ -l | head -5
-```
+These human-readable files can be quite helpful for just getting an understanding of how concepts are structured, what their preferred terms and synonyms are, and what relationships they have. They can be used as context documents for retrieval-augmented generation (RAG) with LLMs, or simply for browsing in a Markdown viewer or VSCode.
 
 ---
 
-## 7 — Layer 3: Vector Embeddings
+## 7 — Vector Embeddings
 
 Generate dense vector embeddings for semantic (nearest-neighbour) search.
-Requires [Ollama](https://ollama.ai) running locally.
+
+!!! tip "Local AI required"
+    Requires [Ollama](https://ollama.ai) running locally.
 
 ```bash
 # Pull an embedding model
@@ -483,6 +568,7 @@ Claude calls `snomed_map` with code `X200E` and terminology `ctv3`, receives ful
 SNOMED concept details and provides context with the modern terminology.
 
 **MCP server properties:**
+
 - Startup time < 5 ms (well under the 100 ms MCP budget)
 - Read-only and stateless
 - Dual-mode transport: supports both Claude Desktop (Content-Length framing) and
@@ -500,6 +586,7 @@ sct tui --db snomed.db
 ```
 
 Three-panel layout:
+
 - **Top-left:** Hierarchy browser
 - **Bottom-left:** Search box + results
 - **Right:** Full concept detail
@@ -538,6 +625,7 @@ sct diff --old snomed-uk-20240901.ndjson \
 ```
 
 Reports:
+
 - Concepts added
 - Concepts inactivated
 - Terms changed (preferred term or FSN updated)
@@ -562,6 +650,7 @@ sct info snomed-embeddings.arrow
 ```
 
 Output includes:
+
 - Concept count
 - Schema version
 - Hierarchy breakdown (concept counts per top-level hierarchy)
@@ -585,7 +674,7 @@ All timings below are for the **UK Monolith (831k active concepts)** on NVMe SSD
 **vs. remote FHIR terminology server (benchmark results):**
 
 Local SQLite queries are **50–2700× faster** than equivalent FHIR R4 operations over the
-network. See `docs/benchmarks.md` for full methodology and results.
+network. See `benchmarks.md` for full methodology and results.
 
 Run the benchmarking suite yourself:
 

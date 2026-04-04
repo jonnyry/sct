@@ -1,3 +1,5 @@
+# sct ndjson
+
 Convert an RF2 Snapshot directory into the canonical SNOMED CT NDJSON artefact.
 
 **This is the required first step — all other `sct` subcommands consume this output.** It joins the RF2 files once, deterministically, and writes each active concept as a single line of JSON.

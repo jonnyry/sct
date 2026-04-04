@@ -1,3 +1,5 @@
+# sct completions
+
 Print a shell completion script to stdout. Supports bash, zsh, fish, PowerShell, and elvish.
 
 ---

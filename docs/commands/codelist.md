@@ -1,3 +1,5 @@
+# sct codelist
+
 Build, validate, and publish clinical code lists as plain-text `.codelist` files.
 
 Also accessible as `sct refset` and `sct valueset`.

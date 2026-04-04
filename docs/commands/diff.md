@@ -1,3 +1,5 @@
+# sct diff
+
 Compare two SNOMED CT NDJSON artefacts and report what changed between releases.
 
 **When to use:** you have two releases of the NDJSON artefact (e.g. March 2025 and March 2026) and want to know what concepts were added, retired, renamed, or moved.
