@@ -31,7 +31,7 @@ local_time_search() {
 # local_time_children PARENT_ID
 local_time_children() {
   local parent="$1"
-  local sql="SELECT c.id, c.preferred_term
+  local sql="SELECT DISTINCT c.id, c.preferred_term
              FROM concept_isa ci
              JOIN concepts c ON ci.child_id = c.id
              WHERE ci.parent_id = '${parent}'"
@@ -40,11 +40,13 @@ local_time_children() {
 
 # local_time_ancestors CODE
 # Uses a recursive CTE to walk the full IS-A chain to root in a single query.
+# UNION (not UNION ALL) deduplicates nodes so each ancestor is visited once,
+# preventing path explosion in SNOMED's polyhierarchy.
 local_time_ancestors() {
   local code="$1"
   local sql="WITH RECURSIVE anc(id) AS (
-               SELECT parent_id FROM concept_isa WHERE child_id='${code}'
-               UNION ALL
+               SELECT DISTINCT parent_id FROM concept_isa WHERE child_id='${code}'
+               UNION
                SELECT ci.parent_id FROM concept_isa ci
                JOIN anc ON ci.child_id = anc.id
              )
@@ -59,8 +61,8 @@ local_time_ancestors() {
 local_time_subsumes() {
   local child="$1" parent="$2"
   local sql="WITH RECURSIVE anc(id) AS (
-               SELECT parent_id FROM concept_isa WHERE child_id='${child}'
-               UNION ALL
+               SELECT DISTINCT parent_id FROM concept_isa WHERE child_id='${child}'
+               UNION
                SELECT ci.parent_id FROM concept_isa ci
                JOIN anc ON ci.child_id = anc.id
              )
@@ -82,16 +84,13 @@ local_time_bulk() {
 }
 
 # local_concept_depth CODE
-# Returns the depth of a concept in the IS-A hierarchy (number of ancestors).
+# Returns the depth of a concept in the IS-A hierarchy by reading the
+# pre-computed hierarchy_path column — no recursive CTE needed.
 local_concept_depth() {
   local code="$1"
   sqlite3 "$BENCH_DB" \
-    "WITH RECURSIVE anc(id) AS (
-       SELECT parent_id FROM concept_isa WHERE child_id='${code}'
-       UNION ALL
-       SELECT ci.parent_id FROM concept_isa ci
-       JOIN anc ON ci.child_id = anc.id
-     ) SELECT COUNT(*) FROM anc" 2>/dev/null
+    "SELECT json_array_length(hierarchy_path) FROM concepts WHERE id='${code}'" \
+    2>/dev/null
 }
 
 # local_snomed_info

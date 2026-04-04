@@ -101,6 +101,11 @@ curl -u admin:yourAdminPassword \
 
 Then pass in `--server http://localhost:8080/fhir` to the benchmark script.
 
+```bash
+bench/bench.sh --db snomed.db --server http://localhost:8080/fhir \
+  --write-benchmarks
+```
+
 ## Notes
 
 - `date +%s%N` requires linux (GNU coreutils). on macOS, install
