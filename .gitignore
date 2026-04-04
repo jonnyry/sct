@@ -9,6 +9,8 @@ target/
 *.db-shm
 *.db-wal
 *.arrow
+snomed-concepts/
+snomed-hierarchies/
 
 # Benchmark results (generated data — commit selectively, not automatically)
 benchmarks/*.md
