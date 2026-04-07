@@ -174,7 +174,7 @@ Please try it out and let me know how it performs for you, especially if you hav
 
 ## Development
 
-A [devcontainer](https://containers.dev/) configuration is included in `.devcontainer/`. Open the project in VS Code and select "Reopen in Container" to get a ready-to-go environment with Rust, `sqlite3`, `duckdb`, `jq`, and `ripgrep` pre-installed.
+A [devcontainer](https://containers.dev/) configuration is included in `.devcontainer/`. Open the project in VS Code and select "Reopen in Container" to get a ready-to-go environment with Rust, `sqlite3`, `duckdb`, `jq`, and `ripgrep` pre-installed. Also included is `python3` and Ollama, for working with the embeddings and semantic search features.
 
 Store SNOMED data files (zips, NDJSON, databases) in the `data-volume/` directory inside the container — it's backed by a Docker volume for faster I/O than the default bind mount.
 

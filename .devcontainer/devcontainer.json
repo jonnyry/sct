@@ -14,11 +14,13 @@
             "extensions": [
                 "rust-lang.rust-analyzer",
                 "vadimcn.vscode-lldb",
-                "timonwong.shellcheck"
+                "timonwong.shellcheck",
+                "ms-python.python"
             ]
         }
     },
     "forwardPorts": [
     ],
-    "postCreateCommand": "cp -n ${containerWorkspaceFolder}/.devcontainer/data-volume-readme.md ${containerWorkspaceFolder}/data-volume/README.md"
+    "postCreateCommand": "cp -n ${containerWorkspaceFolder}/.devcontainer/data-volume-readme.md ${containerWorkspaceFolder}/data-volume/README.md",
+    "postStartCommand": "nohup ollama serve > /tmp/ollama.log 2>&1 &"
 }
